@@ -10,7 +10,7 @@ import "contracts/PriceOracle.sol";
  * @title CrossChainPerps  
  * @dev Main perpetual trading contract with cross-chain capabilities
  */
-contract CrossChainPerps {
+contract Perps {
     
     // Position struct to store user positions
     struct Position {
