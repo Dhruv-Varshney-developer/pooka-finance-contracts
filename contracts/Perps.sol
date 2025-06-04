@@ -313,6 +313,10 @@ positions[msg.sender][symbol] = Position({
     ) internal view returns (int256) {
         Position memory position = positions[user][symbol];
         if (!position.isOpen) return 0;
+            // Check for zero prices to prevent division by zero
+    require(position.entryPrice > 0, "Invalid entry price");
+    require(currentPrice > 0, "Invalid current price");
+
 
         // PnL = (currentPrice - entryPrice) * positionSize / entryPrice
         int256 priceDiff = int256(currentPrice) - int256(position.entryPrice);
