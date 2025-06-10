@@ -83,9 +83,14 @@ contract PriceOracle {
     }
 
     /**
-     * @dev View 24h data WITHOUT updating state (may show stale data). 
-     * @notice Useful for viewing data without making a state change on blockchain.
-     * @notice This shows historical data only - call get24hData() for fresh data
+     * @dev View 24h data WITHOUT updating state 
+     * @notice ⚠️ This shows historical data only - may be stale or show zeros if never updated
+     * @notice Call get24hData() first to initialize/update the tracking data
+     * 
+     * FRONTEND USAGE:
+     * - Use this for quick reads without gas costs
+     * - But call get24hData() periodically to update the underlying data
+     * - If all values are 0, it means get24hData() was never called for this symbol
      */
     function view24hDataWithoutUpdate(string memory symbol)
         external
@@ -118,15 +123,19 @@ contract PriceOracle {
     /**
      * @dev Get 24h data WITH state updates (always fresh and accurate)
      * @notice This updates the tracking data and returns current 24h statistics
+     * FRONTEND USAGE:
+     * - Call this function to get updated 24h data
+     * - Set up periodic calls (every 1-4 hours) for better accuracy
+     * - Price values need to be divided by 1e8 for display
      */
     function get24hData(string memory symbol)
         external
         returns (
-            uint256 currentPrice,
-            uint256 high24h,
-            uint256 low24h,
-            uint256 priceChange,
-            int256 changePercent
+            uint256 currentPrice, // Divide by 1e8 for actual price
+            uint256 high24h,// Divide by 1e8 for actual price
+            uint256 low24h,// Divide by 1e8 for actual price
+            uint256 priceChange, // Absolute change (divide by 1e8)
+            int256 changePercent // Percentage in basis points (150 = 1.50%)
         )
     {
         (currentPrice, ) = this.getPrice(symbol);
