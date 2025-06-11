@@ -114,7 +114,6 @@ contract Perps is PerpsEvents {
 
         // Update balances and market data
         balances[msg.sender] -= totalRequired;
-        feeManager.addProtocolFees(openingFee);
 
         if (isLong) {
             markets[symbol].totalLongSize += positionSize;
@@ -141,7 +140,7 @@ contract Perps is PerpsEvents {
         (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
 
         // Use modules for calculations
-        uint256 holdingFees = feeManager.collectHoldingFees(position);
+        uint256 holdingFees = feeManager.calculateHoldingFee(position);
         int256 pnl = calculator.calculatePnL(position, currentPrice);
         uint256 closingFee = feeManager.calculateClosingFee(
             position.collateral
@@ -161,7 +160,7 @@ contract Perps is PerpsEvents {
         }
 
         position.isOpen = false;
-        feeManager.addProtocolFees(closingFee);
+        position.lastFeeTime = block.timestamp;
 
         if (finalAmount > 0) {
             balances[msg.sender] += uint256(finalAmount);
