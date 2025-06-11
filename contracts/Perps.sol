@@ -10,15 +10,10 @@ import "./PerpsCalculations.sol";
 
 /**
  * @title Perps
- * @dev Main perpetual trading contract (now modular!)
+ * @dev Main perpetual trading contract
  */
 contract Perps is PerpsEvents {
-    using PerpsStructs for PerpsStructs.Position;
-    using PerpsStructs for PerpsStructs.Market;
-
-    // Constants
-    uint256 public constant PRECISION = 1e8;
-
+    
     // State variables
     PriceOracle public priceOracle;
     PerpsFeeManager public feeManager;

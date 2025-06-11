@@ -18,16 +18,9 @@ contract PerpsEvents {
         int256 pnl, 
         uint256 holdingFees
     );
-    
-    event PositionLiquidated(
-        address indexed user,
-        string symbol,
-        int256 pnl,
-        uint256 liquidationPrice
-    );
+
     
     event MarketAdded(string symbol, uint256 maxLeverage);
     event Deposit(address indexed user, uint256 amount);
     event Withdrawal(address indexed user, uint256 amount);
-    event HoldingFeesCollected(address indexed user, string symbol, uint256 feesCollected);
 }
