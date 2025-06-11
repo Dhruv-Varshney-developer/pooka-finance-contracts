@@ -64,7 +64,7 @@ contract Perps is PerpsEvents {
         emit Withdrawal(msg.sender, amount);
     }
 
-    // Open position (simplified with modules)
+    // Open position 
     function openPosition(
         string memory symbol,
         uint256 collateralAmount,
@@ -164,7 +164,7 @@ contract Perps is PerpsEvents {
         emit PositionClosed(msg.sender, symbol, pnl, holdingFees);
     }
 
-    // Get position info (using modules)
+    // Get position info 
     function getPosition(address user, string memory symbol)
         external
         view
