@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-
-
 pragma solidity ^0.8.0;
 
 import "contracts/PriceOracle.sol";
@@ -12,22 +10,17 @@ import "./PerpsCalculations.sol";
 
 /**
  * @title Perps
- * @dev Main perpetual trading contract (now modular!)
+ * @dev Main perpetual trading contract
  */
 contract Perps is PerpsEvents {
-    using PerpsStructs for PerpsStructs.Position;
-    using PerpsStructs for PerpsStructs.Market;
     
-    // Constants
-    uint256 public constant PRICE_STALENESS_THRESHOLD = 1 hours;
-    uint256 public constant PRECISION = 1e8;
-
     // State variables
     PriceOracle public priceOracle;
     PerpsFeeManager public feeManager;
     PerpsCalculations public calculator;
-    
-    mapping(address => mapping(string => PerpsStructs.Position)) public positions;
+
+    mapping(address => mapping(string => PerpsStructs.Position))
+        public positions;
     mapping(string => PerpsStructs.Market) public markets;
     mapping(address => uint256) public balances;
 
@@ -71,7 +64,7 @@ contract Perps is PerpsEvents {
         emit Withdrawal(msg.sender, amount);
     }
 
-    // Open position (simplified with modules)
+    // Open position 
     function openPosition(
         string memory symbol,
         uint256 collateralAmount,
@@ -81,8 +74,14 @@ contract Perps is PerpsEvents {
         PerpsStructs.Market memory market = markets[symbol];
         require(market.isActive, "Market not active");
         require(collateralAmount > 0, "Collateral must be > 0");
-        require(leverage > 0 && leverage <= market.maxLeverage, "Invalid leverage");
-        require(!positions[msg.sender][symbol].isOpen, "Position already exists");
+        require(
+            leverage > 0 && leverage <= market.maxLeverage,
+            "Invalid leverage"
+        );
+        require(
+            !positions[msg.sender][symbol].isOpen,
+            "Position already exists"
+        );
 
         // Calculate fees using fee manager
         uint256 openingFee = feeManager.calculateOpeningFee(collateralAmount);
@@ -91,10 +90,10 @@ contract Perps is PerpsEvents {
 
         // Get current price
         (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
-        require(!priceOracle.isPriceStale(symbol, PRICE_STALENESS_THRESHOLD), "Price too stale");
 
         // Calculate position size
-        uint256 positionSize = (collateralAmount * leverage * currentPrice) / 1e18;
+        uint256 positionSize = (collateralAmount * leverage * currentPrice) /
+            1e18;
 
         // Create position
         positions[msg.sender][symbol] = PerpsStructs.Position({
@@ -110,7 +109,6 @@ contract Perps is PerpsEvents {
 
         // Update balances and market data
         balances[msg.sender] -= totalRequired;
-        feeManager.addProtocolFees(openingFee);
 
         if (isLong) {
             markets[symbol].totalLongSize += positionSize;
@@ -118,24 +116,36 @@ contract Perps is PerpsEvents {
             markets[symbol].totalShortSize += positionSize;
         }
 
-        emit PositionOpened(msg.sender, symbol, positionSize, collateralAmount, currentPrice, isLong, leverage);
+        emit PositionOpened(
+            msg.sender,
+            symbol,
+            positionSize,
+            collateralAmount,
+            currentPrice,
+            isLong,
+            leverage
+        );
     }
 
-    // Close position (simplified)
+    // Close position
     function closePosition(string memory symbol) external {
         PerpsStructs.Position storage position = positions[msg.sender][symbol];
         require(position.isOpen, "No open position");
 
         (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
-        require(!priceOracle.isPriceStale(symbol, PRICE_STALENESS_THRESHOLD), "Price too stale");
 
         // Use modules for calculations
-        uint256 holdingFees = feeManager.collectHoldingFees(position);
+        uint256 holdingFees = feeManager.calculateHoldingFee(position);
         int256 pnl = calculator.calculatePnL(position, currentPrice);
-        uint256 closingFee = feeManager.calculateClosingFee(position.collateral);
+        uint256 closingFee = feeManager.calculateClosingFee(
+            position.collateral
+        );
 
         // Calculate final amount
-        int256 finalAmount = int256(position.collateral) + pnl - int256(holdingFees) - int256(closingFee);
+        int256 finalAmount = int256(position.collateral) +
+            pnl -
+            int256(holdingFees) -
+            int256(closingFee);
 
         // Update market totals
         if (position.isLong) {
@@ -145,7 +155,7 @@ contract Perps is PerpsEvents {
         }
 
         position.isOpen = false;
-        feeManager.addProtocolFees(closingFee);
+        position.lastFeeTime = block.timestamp;
 
         if (finalAmount > 0) {
             balances[msg.sender] += uint256(finalAmount);
@@ -154,9 +164,11 @@ contract Perps is PerpsEvents {
         emit PositionClosed(msg.sender, symbol, pnl, holdingFees);
     }
 
-    // Get position info (using modules)
+    // Get position info 
     function getPosition(address user, string memory symbol)
-        external view returns (PerpsStructs.PositionInfo memory)
+        external
+        view
+        returns (PerpsStructs.PositionInfo memory)
     {
         PerpsStructs.Position memory position = positions[user][symbol];
         (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
@@ -164,25 +176,35 @@ contract Perps is PerpsEvents {
         int256 unrealizedPnL = calculator.calculatePnL(position, currentPrice);
         uint256 accruedFees = feeManager.calculateHoldingFee(position);
 
-        return PerpsStructs.PositionInfo({
-            size: position.size,
-            collateral: position.collateral,
-            entryPrice: position.entryPrice,
-            leverage: position.leverage,
-            isLong: position.isLong,
-            isOpen: position.isOpen,
-            currentPrice: currentPrice,
-            liquidationPrice: calculator.calculateLiquidationPrice(position, markets[symbol]),
-            unrealizedPnL: unrealizedPnL,
-            accruedFees: accruedFees,
-            netPnL: unrealizedPnL - int256(accruedFees),
-            canBeLiquidated: calculator.canLiquidate(position, markets[symbol], currentPrice)
-        });
+        return
+            PerpsStructs.PositionInfo({
+                size: position.size,
+                collateral: position.collateral,
+                entryPrice: position.entryPrice,
+                leverage: position.leverage,
+                isLong: position.isLong,
+                isOpen: position.isOpen,
+                currentPrice: currentPrice,
+                liquidationPrice: calculator.calculateLiquidationPrice(
+                    position,
+                    markets[symbol]
+                ),
+                unrealizedPnL: unrealizedPnL,
+                accruedFees: accruedFees,
+                netPnL: unrealizedPnL - int256(accruedFees),
+                canBeLiquidated: calculator.canLiquidate(
+                    position,
+                    markets[symbol],
+                    currentPrice
+                )
+            });
     }
 
-    // ... (other utility functions remain similar but much shorter)
-    
-    function _addMarket(string memory symbol, uint256 maxLeverage, uint256 maintenanceMargin) internal {
+    function _addMarket(
+        string memory symbol,
+        uint256 maxLeverage,
+        uint256 maintenanceMargin
+    ) internal {
         markets[symbol] = PerpsStructs.Market({
             symbol: symbol,
             maxLeverage: maxLeverage,
@@ -194,7 +216,7 @@ contract Perps is PerpsEvents {
         marketSymbols.push(symbol);
         emit MarketAdded(symbol, maxLeverage);
     }
-    
+
     function _hasOpenPositions(address user) internal view returns (bool) {
         for (uint256 i = 0; i < marketSymbols.length; i++) {
             if (positions[user][marketSymbols[i]].isOpen) {
@@ -203,12 +225,12 @@ contract Perps is PerpsEvents {
         }
         return false;
     }
-    
+
     // Getters
     function getBalance(address user) external view returns (uint256) {
         return balances[user];
     }
-    
+
     function getMarketSymbols() external view returns (string[] memory) {
         return marketSymbols;
     }
