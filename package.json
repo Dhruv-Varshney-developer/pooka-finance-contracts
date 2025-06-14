@@ -4,6 +4,9 @@
     "@chainlink/contracts": "^1.4.0",
     "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
     "@nomicfoundation/hardhat-verify": "^2.0.14",
-    "hardhat": "^2.24.1"
+    "@types/node": "^24.0.1",
+    "hardhat": "^2.24.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
   }
 }
