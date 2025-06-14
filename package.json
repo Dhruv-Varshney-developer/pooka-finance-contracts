@@ -3,6 +3,7 @@
   "devDependencies": {
     "@chainlink/contracts": "^1.4.0",
     "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.14",
     "hardhat": "^2.24.1"
   }
 }
