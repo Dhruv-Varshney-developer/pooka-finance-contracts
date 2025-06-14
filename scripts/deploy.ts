@@ -1,56 +1,38 @@
-const { ethers } = require("hardhat");
+const hre = require("hardhat");
 
 async function main() {
   console.log("🚀 Deploying Perps Protocol...\n");
 
   // Step 1: Deploy PriceOracle
   console.log("1. Deploying PriceOracle...");
-  const PriceOracle = await ethers.getContractFactory("PriceOracle");
-  const priceOracle = await PriceOracle.deploy();
-  await priceOracle.waitForDeployment();
-  const priceOracleAddress = await priceOracle.getAddress();
-  console.log(`✅ PriceOracle: ${priceOracleAddress}`);
+  const priceOracle = await hre.viem.deployContract("PriceOracle");
+  console.log(`✅ PriceOracle: ${priceOracle.address}`);
 
   // Step 2: Deploy PerpsFeeManager
   console.log("\n2. Deploying PerpsFeeManager...");
-  const PerpsFeeManager = await ethers.getContractFactory("PerpsFeeManager");
-  const feeManager = await PerpsFeeManager.deploy();
-  await feeManager.waitForDeployment();
-  const feeManagerAddress = await feeManager.getAddress();
-  console.log(`✅ PerpsFeeManager: ${feeManagerAddress}`);
+  const feeManager = await hre.viem.deployContract("PerpsFeeManager");
+  console.log(`✅ PerpsFeeManager: ${feeManager.address}`);
 
   // Step 3: Deploy PerpsCalculations
   console.log("\n3. Deploying PerpsCalculations...");
-  const PerpsCalculations = await ethers.getContractFactory(
-    "PerpsCalculations"
-  );
-  const calculations = await PerpsCalculations.deploy(feeManagerAddress);
-  await calculations.waitForDeployment();
-  const calculationsAddress = await calculations.getAddress();
-  console.log(`✅ PerpsCalculations: ${calculationsAddress}`);
+  const calculations = await hre.viem.deployContract("PerpsCalculations", [feeManager.address]);
+  console.log(`✅ PerpsCalculations: ${calculations.address}`);
 
   // Step 4: Deploy Main Perps Contract
   console.log("\n4. Deploying Perps (Main)...");
-  const Perps = await ethers.getContractFactory("Perps");
-  const perps = await Perps.deploy(
-    priceOracleAddress,
-    feeManagerAddress,
-    calculationsAddress
-  );
-  await perps.waitForDeployment();
-  const perpsAddress = await perps.getAddress();
-  console.log(`✅ Perps: ${perpsAddress}`);
+  const perps = await hre.viem.deployContract("Perps", [
+    priceOracle.address,
+    feeManager.address,
+    calculations.address
+  ]);
+  console.log(`✅ Perps: ${perps.address}`);
 
   // Verification commands
   console.log("\n🔍 VERIFICATION COMMANDS:");
-  console.log(`npx hardhat verify --network \${NETWORK} ${priceOracleAddress}`);
-  console.log(`npx hardhat verify --network \${NETWORK} ${feeManagerAddress}`);
-  console.log(
-    `npx hardhat verify --network \${NETWORK} ${calculationsAddress} "${feeManagerAddress}"`
-  );
-  console.log(
-    `npx hardhat verify --network \${NETWORK} ${perpsAddress} "${priceOracleAddress}" "${feeManagerAddress}" "${calculationsAddress}"`
-  );
+  console.log(`npx hardhat verify --network avax_testnet ${priceOracle.address}`);
+  console.log(`npx hardhat verify --network avax_testnet ${feeManager.address}`);
+  console.log(`npx hardhat verify --network avax_testnet ${calculations.address} "${feeManager.address}"`);
+  console.log(`npx hardhat verify --network avax_testnet ${perps.address} "${priceOracle.address}" "${feeManager.address}" "${calculations.address}"`);
 }
 
 main().catch((error) => {
