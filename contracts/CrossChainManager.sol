@@ -7,111 +7,78 @@ import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications
 import {IERC20} from "@chainlink/contracts-ccip/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
 
 contract CrossChainManager is CCIPReceiver {
-    enum MessageType {
-        DEPOSIT,
-        REFUND
-    }
-
-    struct Message {
-        MessageType msgType;
-        address user;
-        uint256 amount;
-    }
-
+    // CCIP router for sending messages
     IRouterClient private immutable router;
+    // LINK token for paying CCIP fees
     IERC20 private immutable linkToken;
-    IERC20 public immutable collateralToken;
+    // USDC token being transferred
+    IERC20 private immutable collateralToken;
 
-    address public owner;
+    // Pool contract address (only on Avax)
     address public poolContract;
-    uint64 public avaxChainSelector;
-    uint64 public sepoliaChainSelector;
-
-    mapping(address => bool) public allowedSenders;
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
-        _;
-    }
-
-    modifier onlyPool() {
-        require(msg.sender == poolContract, "Only pool");
-        _;
-    }
+    // Chain selectors for CCIP
+    uint64 public constant AVAX_CHAIN = 14767482510784806043;
+    uint64 public constant SEPOLIA_CHAIN = 16015286601757825753;
 
     constructor(
         address _router,
         address _linkToken,
-        address _collateralToken,
-        uint64 _avaxChainSelector,
-        uint64 _sepoliaChainSelector
+        address _collateralToken
     ) CCIPReceiver(_router) {
         router = IRouterClient(_router);
         linkToken = IERC20(_linkToken);
         collateralToken = IERC20(_collateralToken);
-        owner = msg.sender;
-        avaxChainSelector = _avaxChainSelector;
-        sepoliaChainSelector = _sepoliaChainSelector;
     }
 
-    // Called on Sepolia when user deposits
+    // Called on Sepolia when user deposits USDC
     function sendDeposit(address user, uint256 amount) external {
-        require(allowedSenders[msg.sender], "Not allowed");
-
+        // Take user's USDC
         collateralToken.transferFrom(user, address(this), amount);
-
-        _sendMessage(avaxChainSelector, MessageType.DEPOSIT, user, amount);
+        
+        // Send CCIP message to Avax telling pool to front this amount
+        _sendMessage(AVAX_CHAIN, true, user, amount);
     }
 
-    // Called by Pool on Avax to send refund to Sepolia
-    function sendRefund(address user, uint256 amount) external onlyPool {
-        _sendMessage(sepoliaChainSelector, MessageType.REFUND, user, amount);
+    // Called by Pool on Avax to send USDC back to user on Sepolia  
+    function sendRefund(address user, uint256 amount) external {
+        require(msg.sender == poolContract, "Only pool");
+        _sendMessage(SEPOLIA_CHAIN, false, user, amount);
     }
 
-    function _sendMessage(
-        uint64 targetChain,
-        MessageType msgType,
-        address user,
-        uint256 amount
-    ) internal {
-        Message memory message = Message(msgType, user, amount);
-
+    // Internal function to send CCIP message
+    function _sendMessage(uint64 targetChain, bool isDeposit, address user, uint256 amount) internal {
+        // Create CCIP message
         Client.EVM2AnyMessage memory ccipMessage = Client.EVM2AnyMessage({
-            receiver: abi.encode(address(this)),
-            data: abi.encode(message),
-            tokenAmounts: new Client.EVMTokenAmount[](0),
-            extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV1({gasLimit: 200_000})
-            ),
-            feeToken: address(linkToken)
+            receiver: abi.encode(address(this)), // Send to same contract on other chain
+            data: abi.encode(isDeposit, user, amount), // Pack the data
+            tokenAmounts: new Client.EVMTokenAmount[](0), // No tokens, just message
+            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000})),
+            feeToken: address(linkToken) // Pay fees in LINK
         });
 
+        // Calculate and pay CCIP fees
         uint256 fees = router.getFee(targetChain, ccipMessage);
         linkToken.approve(address(router), fees);
         router.ccipSend(targetChain, ccipMessage);
     }
 
-    function _ccipReceive(Client.Any2EVMMessage memory message)
-        internal
-        override
-    {
-        Message memory decoded = abi.decode(message.data, (Message));
+    // Receives CCIP messages from other chains
+    function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
+        // Decode the message data
+        (bool isDeposit, address user, uint256 amount) = abi.decode(message.data, (bool, address, uint256));
 
-        if (decoded.msgType == MessageType.DEPOSIT) {
-            // On Avax: notify pool
-            IPool(poolContract).handleDeposit(decoded.user, decoded.amount);
+        if (isDeposit) {
+            // On Avax: tell pool to front collateral for user
+            IPool(poolContract).handleDeposit(user, amount);
         } else {
-            // On Sepolia: send refund to user
-            collateralToken.transfer(decoded.user, decoded.amount);
+            // On Sepolia: send USDC back to user
+            collateralToken.transfer(user, amount);
         }
     }
 
-    function setPoolContract(address _pool) external onlyOwner {
+    // Set pool contract address (only needed on Avax)
+    function setPoolContract(address _pool) external {
         poolContract = _pool;
-    }
-
-    function setAllowedSender(address sender, bool allowed) external onlyOwner {
-        allowedSenders[sender] = allowed;
     }
 }
 
