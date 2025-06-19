@@ -57,39 +57,38 @@ contract Perps is PerpsEvents {
     }
 
     function depositUSDC(uint256 usdcAmount) external {
-    require(usdcAmount > 0, "Deposit amount must be > 0");
-    
-    // Transfer USDC from user
-    usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
-    
-    // Get ETH/USD price from oracle (8 decimals)
-    (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
-    
-    // Convert USDC (6 decimals) to ETH equivalent (18 decimals)
-    // Formula: (usdcAmount * 1e18) / (ethPrice / 1e8) = (usdcAmount * 1e26) / ethPrice
-    uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice; // Adjusted for USDC 6 decimals
-    
-    balances[msg.sender] += ethEquivalent;
-    
-    emit Deposit(msg.sender, ethEquivalent);
-}
+        require(usdcAmount > 0, "Deposit amount must be > 0");
 
-// Add this function for USDC withdrawals
-function withdrawUSDC(uint256 usdcAmount) external {
-    // Get ETH/USD price from oracle (8 decimals)
-    (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
-    
-    // Convert USDC amount to ETH equivalent for balance checking
-    uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice;
-    
-    require(balances[msg.sender] >= ethEquivalent, "Insufficient balance");
-    require(!_hasOpenPositions(msg.sender), "Close all positions first");
+        // Transfer USDC from user
+        usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
 
-    balances[msg.sender] -= ethEquivalent;
-    usdcToken.transfer(msg.sender, usdcAmount);
-    
-    emit Withdrawal(msg.sender, ethEquivalent);
-}
+        // Get ETH/USD price from oracle (8 decimals)
+        (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
+
+        // Convert USDC (6 decimals) to ETH equivalent (18 decimals)
+        // Formula: (usdcAmount * 1e18) / (ethPrice / 1e8) = (usdcAmount * 1e26) / ethPrice
+        uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice; // Adjusted for USDC 6 decimals
+
+        balances[msg.sender] += ethEquivalent;
+
+        emit Deposit(msg.sender, ethEquivalent);
+    }
+
+    function withdrawUSDC(uint256 usdcAmount) external {
+        // Get ETH/USD price from oracle (8 decimals)
+        (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
+
+        // Convert USDC amount to ETH equivalent for balance checking
+        uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice;
+
+        require(balances[msg.sender] >= ethEquivalent, "Insufficient balance");
+        require(!_hasOpenPositions(msg.sender), "Close all positions first");
+
+        balances[msg.sender] -= ethEquivalent;
+        usdcToken.transfer(msg.sender, usdcAmount);
+
+        emit Withdrawal(msg.sender, ethEquivalent);
+    }
 
     // Withdraw collateral
     function withdraw(uint256 amount) external {
