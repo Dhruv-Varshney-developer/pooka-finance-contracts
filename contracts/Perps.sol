@@ -7,13 +7,13 @@ import "./PerpsStructs.sol";
 import "./PerpsEvents.sol";
 import "./PerpsFeeManager.sol";
 import "./PerpsCalculations.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title Perps
  * @dev Main perpetual trading contract
  */
 contract Perps is PerpsEvents {
-    
     // State variables
     PriceOracle public priceOracle;
     PerpsFeeManager public feeManager;
@@ -26,6 +26,7 @@ contract Perps is PerpsEvents {
 
     string[] public marketSymbols;
     address public owner;
+    IERC20 public usdcToken;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
@@ -35,13 +36,14 @@ contract Perps is PerpsEvents {
     constructor(
         address _priceOracle,
         address _feeManager,
-        address _calculator
+        address _calculator,
+        address _usdcToken
     ) {
         owner = msg.sender;
         priceOracle = PriceOracle(_priceOracle);
         feeManager = PerpsFeeManager(_feeManager);
         calculator = PerpsCalculations(_calculator);
-
+        usdcToken = IERC20(_usdcToken);
         // Initialize default markets
         _addMarket("BTC/USD", 20, 500);
         _addMarket("ETH/USD", 15, 667);
@@ -54,6 +56,41 @@ contract Perps is PerpsEvents {
         emit Deposit(msg.sender, msg.value);
     }
 
+    function depositUSDC(uint256 usdcAmount) external {
+    require(usdcAmount > 0, "Deposit amount must be > 0");
+    
+    // Transfer USDC from user
+    usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+    
+    // Get ETH/USD price from oracle (8 decimals)
+    (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
+    
+    // Convert USDC (6 decimals) to ETH equivalent (18 decimals)
+    // Formula: (usdcAmount * 1e18) / (ethPrice / 1e8) = (usdcAmount * 1e26) / ethPrice
+    uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice; // Adjusted for USDC 6 decimals
+    
+    balances[msg.sender] += ethEquivalent;
+    
+    emit Deposit(msg.sender, ethEquivalent);
+}
+
+// Add this function for USDC withdrawals
+function withdrawUSDC(uint256 usdcAmount) external {
+    // Get ETH/USD price from oracle (8 decimals)
+    (uint256 ethPrice, ) = priceOracle.getPrice("ETH/USD");
+    
+    // Convert USDC amount to ETH equivalent for balance checking
+    uint256 ethEquivalent = (usdcAmount * 1e20) / ethPrice;
+    
+    require(balances[msg.sender] >= ethEquivalent, "Insufficient balance");
+    require(!_hasOpenPositions(msg.sender), "Close all positions first");
+
+    balances[msg.sender] -= ethEquivalent;
+    usdcToken.transfer(msg.sender, usdcAmount);
+    
+    emit Withdrawal(msg.sender, ethEquivalent);
+}
+
     // Withdraw collateral
     function withdraw(uint256 amount) external {
         require(balances[msg.sender] >= amount, "Insufficient balance");
@@ -64,7 +101,7 @@ contract Perps is PerpsEvents {
         emit Withdrawal(msg.sender, amount);
     }
 
-    // Open position 
+    // Open position
     function openPosition(
         string memory symbol,
         uint256 collateralAmount,
@@ -164,7 +201,7 @@ contract Perps is PerpsEvents {
         emit PositionClosed(msg.sender, symbol, pnl, holdingFees);
     }
 
-    // Get position info 
+    // Get position info
     function getPosition(address user, string memory symbol)
         external
         view
