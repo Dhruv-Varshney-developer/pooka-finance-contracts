@@ -2,43 +2,59 @@
 pragma solidity ^0.8.0;
 
 library PerpsStructs {
-    // Position struct to store user positions
+    /**
+     * @dev Position struct - all USD/USDC based
+     * @notice All values are in their respective decimals:
+     * - USDC amounts: 6 decimals (e.g., 1000000 = $1.00)
+     * - USD sizes: 6 decimals (e.g., 50000000 = $50.00)
+     * - Prices: 8 decimals from oracle (e.g., 10000000000 = $100.00)
+     */
     struct Position {
-        uint256 size; // Position size in USD (8 decimals)
-        uint256 collateral; // Collateral deposited (18 decimals ETH)
-        uint256 entryPrice; // Price when position was opened (8 decimals)
-        uint256 leverage; // Leverage for the position
-        bool isLong; // true for long, false for short
-        bool isOpen; // Position status
-        uint256 openTime; // When position was opened
-        uint256 lastFeeTime; // Last time holding fee was calculated
+        uint256 sizeUSD;        // Position size in USD (6 decimals)
+        uint256 collateralUSDC; // Collateral in USDC (6 decimals)
+        uint256 entryPrice;     // Entry price (8 decimals from oracle)
+        uint256 leverage;       // Leverage multiplier
+        bool isLong;           // Position direction
+        bool isOpen;           // Position status
+        uint256 openTime;      // Opening timestamp
+        uint256 lastFeeTime;   // Last fee calculation timestamp
     }
 
-    // Market data
+    /**
+     * @dev Market configuration and tracking
+     */
     struct Market {
-        string symbol; // e.g., "BTC/USD"
-        uint256 maxLeverage; // Maximum allowed leverage
-        uint256 maintenanceMargin; // Maintenance margin percentage (basis points)
-        uint256 totalLongSize; // Total long positions in USD (for risk management)
-        uint256 totalShortSize; // Total short positions in USD (for risk management)
-        bool isActive; // Market status
+        string symbol;              // Trading pair (e.g., "BTC/USD")
+        uint256 maxLeverage;        // Maximum leverage allowed
+        uint256 maintenanceMargin;  // Maintenance margin in basis points
+        uint256 totalLongSizeUSD;   // Total long positions in USD (6 decimals)
+        uint256 totalShortSizeUSD;  // Total short positions in USD (6 decimals)
+        bool isActive;             // Market availability
     }
 
-    // Position info struct for getPosition return
+    /**
+     * @dev Comprehensive position information for frontend
+     * @notice All monetary values maintain their decimal precision:
+     * - USDC: 6 decimals
+     * - USD: 6 decimals  
+     * - Prices: 8 decimals
+     * - PnL: 6 decimals (in USDC terms)
+     */
     struct PositionInfo {
-        //Basic Position Data
-        uint256 size;
-        uint256 collateral;
-        uint256 entryPrice;
-        uint256 leverage;
-        bool isLong;
-        bool isOpen;
-        // Real time computed data
-        uint256 currentPrice;
-        uint256 liquidationPrice;
-        int256 unrealizedPnL;
-        uint256 accruedFees;
-        int256 netPnL;
-        bool canBeLiquidated;
+        // Core position data
+        uint256 sizeUSD;           // Position size in USD (6 decimals)
+        uint256 collateralUSDC;    // Collateral amount in USDC (6 decimals)
+        uint256 entryPrice;        // Entry price (8 decimals)
+        uint256 leverage;          // Leverage used
+        bool isLong;              // Position direction
+        bool isOpen;              // Position status
+        
+        // Real-time computed data
+        uint256 currentPrice;      // Current market price (8 decimals)
+        uint256 liquidationPrice;  // Liquidation trigger price (8 decimals)
+        int256 unrealizedPnL;     // Unrealized PnL in USDC (6 decimals)
+        uint256 accruedFees;      // Accrued holding fees in USDC (6 decimals)
+        int256 netPnL;            // Net PnL after fees in USDC (6 decimals)
+        bool canBeLiquidated;     // Liquidation eligibility
     }
 }
