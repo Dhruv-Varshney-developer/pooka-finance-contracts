@@ -8,11 +8,11 @@ import "./PerpsStructs.sol";
  * @dev USDC-based fee calculations for perpetual trading
  */
 contract PerpsFeeManager {
-    // Fee constants (in basis points)
-    uint256 public constant HOLDING_FEE_RATE = 1; // 0.01% daily
+    // Fee constants (in basis points) - FIXED RATES
+    uint256 public constant HOLDING_FEE_RATE = 100; // 1% daily 
     uint256 public constant FEE_INTERVAL = 1 days;
-    uint256 public constant OPENING_FEE_BPS = 10; // 0.1%
-    uint256 public constant CLOSING_FEE_BPS = 10; // 0.1%
+    uint256 public constant OPENING_FEE_BPS = 100; // 1% 
+    uint256 public constant CLOSING_FEE_BPS = 100; // 1% 
 
     /**
      * @dev Calculate holding fees for a position
@@ -20,7 +20,7 @@ contract PerpsFeeManager {
      * @return Holding fees in USDC (6 decimals)
      * 
      * Formula: (collateral * daily_rate * days_held)
-     * Example: $100 collateral * 0.01% * 5 days = $0.05 fees
+     * Example: $100 collateral * 1% * 5 days = $5.00 fees
      */
     function calculateHoldingFee(PerpsStructs.Position memory position)
         external
@@ -32,7 +32,7 @@ contract PerpsFeeManager {
         uint256 timeHeld = block.timestamp - position.lastFeeTime;
         uint256 periodsHeld = timeHeld / FEE_INTERVAL;
 
-        // Calculate fee on collateral amount
+        // Calculate fee on collateral amount (1% daily)
         return (position.collateralUSDC * HOLDING_FEE_RATE * periodsHeld) / 10000;
     }
 
@@ -41,8 +41,8 @@ contract PerpsFeeManager {
      * @param collateralUSDC Collateral amount in USDC (6 decimals)
      * @return Opening fee in USDC (6 decimals)
      * 
-     * Formula: collateral * 0.1%
-     * Example: $100 collateral = $0.10 opening fee
+     * Formula: collateral * 1%
+     * Example: $100 collateral = $1.00 opening fee
      */
     function calculateOpeningFee(uint256 collateralUSDC)
         external
@@ -57,8 +57,8 @@ contract PerpsFeeManager {
      * @param collateralUSDC Collateral amount in USDC (6 decimals)
      * @return Closing fee in USDC (6 decimals)
      * 
-     * Formula: collateral * 0.1%
-     * Example: $100 collateral = $0.10 closing fee
+     * Formula: collateral * 1%
+     * Example: $100 collateral = $1.00 closing fee
      */
     function calculateClosingFee(uint256 collateralUSDC)
         external
@@ -96,5 +96,18 @@ contract PerpsFeeManager {
         returns (uint256)
     {
         return (collateralUSDC * HOLDING_FEE_RATE) / 10000;
+    }
+
+    /**
+     * @dev Calculate profit tax (30% of profits)
+     * @param profitAmount Profit amount in USDC (6 decimals)
+     * @return Profit tax in USDC (6 decimals)
+     */
+    function calculateProfitTax(uint256 profitAmount)
+        external
+        pure
+        returns (uint256)
+    {
+        return (profitAmount * 30) / 100;
     }
 }
