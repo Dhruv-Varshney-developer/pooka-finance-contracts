@@ -25,10 +25,16 @@ contract Perps is PerpsEvents {
 
     string[] public marketSymbols;
     address public owner;
+    address public poolManager; // Pool manager for cross-chain deposits
     IERC20 public usdcToken;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
+        _;
+    }
+
+    modifier onlyPoolManager() {
+        require(msg.sender == poolManager, "Only pool manager");
         _;
     }
 
@@ -43,9 +49,16 @@ contract Perps is PerpsEvents {
         feeManager = PerpsFeeManager(_feeManager);
         calculator = PerpsCalculations(_calculator);
         usdcToken = IERC20(_usdcToken);
-        // Initialize default markets
-        _addMarket("BTC/USD", 20, 500);
-        _addMarket("ETH/USD", 15, 667);
+        // Initialize default markets with 3x max leverage
+        _addMarket("BTC/USD", 3, 500);
+        _addMarket("ETH/USD", 3, 667);
+    }
+
+    /**
+     * @dev Set pool manager address (for cross-chain deposits)
+     */
+    function setPoolManager(address _poolManager) external onlyOwner {
+        poolManager = _poolManager;
     }
 
     /**
@@ -54,6 +67,7 @@ contract Perps is PerpsEvents {
      */
     function depositUSDC(uint256 usdcAmount) external {
         require(usdcAmount > 0, "Deposit amount must be > 0");
+        require(balances[msg.sender] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
 
         // Transfer USDC from user
         usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
@@ -62,6 +76,25 @@ contract Perps is PerpsEvents {
         balances[msg.sender] += usdcAmount;
 
         emit Deposit(msg.sender, usdcAmount);
+    }
+
+    /**
+     * @dev Deposit USDC collateral on behalf of user (for cross-chain deposits)
+     * @param user User address to credit the deposit to
+     * @param usdcAmount Amount of USDC to deposit (6 decimals)
+     */
+    function depositUSDCForUser(address user, uint256 usdcAmount) external onlyPoolManager {
+        require(user != address(0), "Invalid user address");
+        require(usdcAmount > 0, "Deposit amount must be > 0");
+        require(balances[user] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
+
+        // Transfer USDC from PoolManager to Perps
+        usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+        
+        // Add to user's balance (USDC has 6 decimals)
+        balances[user] += usdcAmount;
+
+        emit Deposit(user, usdcAmount);
     }
 
     /**
@@ -95,8 +128,8 @@ contract Perps is PerpsEvents {
         require(market.isActive, "Market not active");
         require(collateralUSDC > 0, "Collateral must be > 0");
         require(
-            leverage > 0 && leverage <= market.maxLeverage,
-            "Invalid leverage"
+            leverage > 0 && leverage <= 3,
+            "Max leverage is 3x"
         );
         require(
             !positions[msg.sender][symbol].isOpen,
@@ -114,6 +147,12 @@ contract Perps is PerpsEvents {
         // Calculate position size in USD (normalize to 6 decimals like USDC)
         // collateralUSDC (6 decimals) * leverage = position size in USD (6 decimals)
         uint256 positionSizeUSD = collateralUSDC * leverage;
+        
+        // Ensure user doesn't exceed $100 total exposure
+        require(
+            _getUserTotalExposure(msg.sender) + positionSizeUSD <= 300_000_000,
+            "Max $300 total exposure per user (3x $100 collateral)"
+        );
 
         // Create position
         positions[msg.sender][symbol] = PerpsStructs.Position({
@@ -160,12 +199,19 @@ contract Perps is PerpsEvents {
         uint256 holdingFees = feeManager.calculateHoldingFee(position);
         int256 pnlUSDC = calculator.calculatePnL(position, currentPrice);
         uint256 closingFee = feeManager.calculateClosingFee(position.collateralUSDC);
+        
+        // Apply 30% profit tax if position is profitable
+        uint256 profitTax = 0;
+        if (pnlUSDC > 0) {
+            profitTax = (uint256(pnlUSDC) * 30) / 100;
+        }
 
         // Calculate final USDC amount
         int256 finalUSDCAmount = int256(position.collateralUSDC) + 
                                 pnlUSDC - 
                                 int256(holdingFees) - 
-                                int256(closingFee);
+                                int256(closingFee) -
+                                int256(profitTax);
 
         // Update market totals
         if (position.isLong) {
@@ -182,7 +228,7 @@ contract Perps is PerpsEvents {
             balances[msg.sender] += uint256(finalUSDCAmount);
         }
 
-        emit PositionClosed(msg.sender, symbol, pnlUSDC, holdingFees);
+        emit PositionClosed(msg.sender, symbol, pnlUSDC, holdingFees + profitTax);
     }
 
     /**
@@ -254,6 +300,19 @@ contract Perps is PerpsEvents {
         return false;
     }
 
+    /**
+     * @dev Calculate user's total position exposure across all markets
+     */
+    function _getUserTotalExposure(address user) internal view returns (uint256) {
+        uint256 totalExposure = 0;
+        for (uint256 i = 0; i < marketSymbols.length; i++) {
+            if (positions[user][marketSymbols[i]].isOpen) {
+                totalExposure += positions[user][marketSymbols[i]].sizeUSD;
+            }
+        }
+        return totalExposure;
+    }
+
     // Getters
     function getBalance(address user) external view returns (uint256) {
         return balances[user];
@@ -272,5 +331,41 @@ contract Perps is PerpsEvents {
         returns (PerpsStructs.Market memory) 
     {
         return markets[symbol];
+    }
+
+    /**
+     * @dev Get user's remaining capacity for new positions
+     */
+    function getUserRemainingCapacity(address user) external view returns (uint256) {
+        uint256 currentExposure = _getUserTotalExposure(user);
+        uint256 maxExposure = 300_000_000; // $300 max exposure
+        
+        if (currentExposure >= maxExposure) {
+            return 0;
+        }
+        return maxExposure - currentExposure;
+    }
+
+    /**
+     * @dev Get user limits and current usage
+     */
+    function getUserLimits(address user) 
+        external 
+        view 
+        returns (
+            uint256 maxBalance,
+            uint256 currentBalance, 
+            uint256 maxExposure,
+            uint256 currentExposure,
+            uint256 remainingCapacity
+        ) 
+    {
+        return (
+            100_000_000, // $100 max balance
+            balances[user],
+            300_000_000, // $300 max exposure  
+            _getUserTotalExposure(user),
+            this.getUserRemainingCapacity(user)
+        );
     }
 }
