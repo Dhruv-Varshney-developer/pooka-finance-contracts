@@ -1,224 +1,235 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "contracts/PriceOracle.sol";
+import "./Perps.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract Pool {
-    // USDC token that users deposit
-    IERC20 public immutable collateralToken;
-    // CrossChain Manager that triggers deposits
+/**
+ * @title PoolManager
+ * @dev Converts tokens to USDC and deposits to Perps platform
+ * Two deposit paths:
+ * 1. Cross-chain: CrossChainManager → handleDeposit() 
+ * 2. Direct: AVAX users → depositDirect()
+ * Deployed only on AVAX Fuji
+ */
+contract PoolManager {
+    PriceOracle public priceOracle;
+    Perps public perpsContract;
     address public crossChainManager;
-    // Perps contract where we execute trades
-    address public perpsContract;
-    // Platform backend that sends trade instructions
-    address public platform;
-
-    // Track which cross-chain user owns each position
-    // poolAddress -> symbol -> actualUserAddress
-    mapping(string => address) public positionOwners;
     
-    // Track how much collateral each cross-chain user has deposited
-    mapping(address => uint256) public userCollateral;
+    // Supported tokens on AVAX
+    IERC20 public usdcToken;  // 6 decimals
+    IERC20 public linkToken;  // 18 decimals
     
-    // Track total collateral we're managing
-    uint256 public totalManagedCollateral;
-
-    modifier onlyPlatform() {
-        require(msg.sender == platform, "Only platform");
-        _;
-    }
-
+    // Track deposited amounts per user (in original tokens for accounting)
+    mapping(address => mapping(address => uint256)) public userDeposits;
+    
     modifier onlyCrossChainManager() {
-        require(msg.sender == crossChainManager, "Only manager");
+        require(msg.sender == crossChainManager, "Only CrossChainManager");
         _;
     }
-
+    
+    event TokensConverted(
+        address indexed user,
+        address indexed fromToken,
+        uint256 fromAmount,
+        uint256 usdcAmount
+    );
+    event DepositedToPerps(address indexed user, uint256 usdcAmount);
+    
     constructor(
-        address _collateralToken,
-        address _crossChainManager, 
+        address _priceOracle,
         address _perpsContract,
-        address _platform
+        address _crossChainManager,
+        address _usdcToken,
+        address _linkToken
     ) {
-        collateralToken = IERC20(_collateralToken);
+        priceOracle = PriceOracle(_priceOracle);
+        perpsContract = Perps(_perpsContract);
         crossChainManager = _crossChainManager;
-        perpsContract = _perpsContract;
-        platform = _platform;
-    }
-
-    // Called by CrossChainManager when user deposits on Sepolia
-    function handleDeposit(address user, uint256 amount) external onlyCrossChainManager {
-        // Track user's collateral balance
-        userCollateral[user] += amount;
-        totalManagedCollateral += amount;
-        
-        // Convert USDC to ETH and deposit to Perps contract
-        uint256 ethAmount = amount; // 1:1 for hackathon simplicity
-        IPerps(perpsContract).deposit{value: ethAmount}();
-    }
-
-    // Platform calls this to open position for cross-chain user
-    function openPositionForUser(
-        address user,
-        string memory symbol,
-        uint256 collateralAmount,
-        uint256 leverage,
-        bool isLong
-    ) external onlyPlatform {
-        require(userCollateral[user] >= collateralAmount, "Insufficient user collateral");
-        require(positionOwners[symbol] == address(0), "Position already exists for this symbol");
-        
-        // Mark this position as belonging to the user
-        positionOwners[symbol] = user;
-        
-        // Reduce user's available collateral
-        userCollateral[user] -= collateralAmount;
-        
-        // Open position in Perps contract (Pool contract is the position holder)
-        IPerps(perpsContract).openPosition(symbol, collateralAmount, leverage, isLong);
-    }
-
-    // Platform calls this to close position for cross-chain user  
-    function closePositionForUser(
-        address user,
-        string memory symbol
-    ) external onlyPlatform {
-        require(positionOwners[symbol] == user, "User doesn't own this position");
-        
-        // Get position details before closing
-        (uint256 collateral, , , , , bool isOpen, , ) = IPerps(perpsContract).positions(address(this), symbol);
-        require(isOpen, "Position not open");
-        
-        // Close position in Perps contract
-        IPerps(perpsContract).closePosition(symbol);
-        
-        // Get final balance after close (profit/loss applied)
-        uint256 finalBalance = IPerps(perpsContract).balances(address(this));
-        
-        // Calculate what belongs to this user (simplified for hackathon)
-        userCollateral[user] += finalBalance;
-        
-        // Clear position ownership
-        positionOwners[symbol] = address(0);
-    }
-
-    // User requests refund back to Sepolia
-    function requestRefund(address user, uint256 amount) external onlyPlatform {
-        require(userCollateral[user] >= amount, "Insufficient balance");
-        require(!_userHasOpenPositions(user), "User has open positions");
-        
-        // Reduce user's collateral
-        userCollateral[user] -= amount;
-        totalManagedCollateral -= amount;
-        
-        // Withdraw from Perps contract
-        IPerps(perpsContract).withdraw(amount);
-        
-        // Tell CrossChainManager to send refund to Sepolia
-        ICrossChainManager(crossChainManager).sendRefund(user, amount);
-    }
-
-    // Check if user has any open positions
-    function _userHasOpenPositions(address user) internal view returns (bool) {
-        string[] memory symbols = IPerps(perpsContract).getMarketSymbols();
-        
-        for (uint i = 0; i < symbols.length; i++) {
-            if (positionOwners[symbols[i]] == user) {
-                (, , , , , bool isOpen, , ) = IPerps(perpsContract).positions(address(this), symbols[i]);
-                if (isOpen) return true;
-            }
-        }
-        return false;
-    }
-
-    // Get user's available collateral
-    function getUserCollateral(address user) external view returns (uint256) {
-        return userCollateral[user];
-    }
-
-    // Get who owns a specific position
-    function getPositionOwner(string memory symbol) external view returns (address) {
-        return positionOwners[symbol];
-    }
-
-    // Get all positions owned by a cross-chain user
-    function getUserPositions(address user) external view returns (string[] memory userSymbols) {
-        string[] memory allSymbols = IPerps(perpsContract).getMarketSymbols();
-        uint256 count = 0;
-        
-        // Count user's positions first
-        for (uint i = 0; i < allSymbols.length; i++) {
-            if (positionOwners[allSymbols[i]] == user) {
-                count++;
-            }
-        }
-        
-        // Create array with user's symbols
-        userSymbols = new string[](count);
-        uint256 index = 0;
-        for (uint i = 0; i < allSymbols.length; i++) {
-            if (positionOwners[allSymbols[i]] == user) {
-                userSymbols[index] = allSymbols[i];
-                index++;
-            }
-        }
-        
-        return userSymbols;
-    }
-
-    // Get basic position details for cross-chain user
-    function getUserPositionDetails(address user, string memory symbol) external view returns (
-        uint256 size, uint256 collateral, uint256 entryPrice, uint256 leverage, 
-        bool isLong, bool isOpen, uint256 openTime, uint256 lastFeeTime
-    ) {
-        require(positionOwners[symbol] == user, "User doesn't own this position");
-        
-        // Get position data from Perps contract (using Pool's address as holder)
-        return IPerps(perpsContract).positions(address(this), symbol);
-    }
-
-    // Get rich position data with calculations for cross-chain user (same as getPosition in Perps)
-    function getUserPositionInfo(address user, string memory symbol) external view returns (
-        IPerps.PositionInfo memory
-    ) {
-        require(positionOwners[symbol] == user, "User doesn't own this position");
-        
-        // Get rich position data from Perps contract (using Pool's address as holder)
-        // This includes currentPrice, unrealizedPnL, liquidationPrice, canBeLiquidated, etc.
-        return IPerps(perpsContract).getPosition(address(this), symbol);
-    }
-
-    // Fund pool with ETH for trading (hackathon demo)
-    receive() external payable {}
-}
-
-interface ICrossChainManager {
-    function sendRefund(address user, uint256 amount) external;
-}
-
-interface IPerps {
-    struct PositionInfo {
-        uint256 size;
-        uint256 collateral;
-        uint256 entryPrice;
-        uint256 leverage;
-        bool isLong;
-        bool isOpen;
-        uint256 currentPrice;
-        uint256 liquidationPrice;
-        int256 unrealizedPnL;
-        uint256 accruedFees;
-        int256 netPnL;
-        bool canBeLiquidated;
+        usdcToken = IERC20(_usdcToken);
+        linkToken = IERC20(_linkToken);
     }
     
-    function deposit() external payable;
-    function withdraw(uint256 amount) external;
-    function openPosition(string memory symbol, uint256 collateralAmount, uint256 leverage, bool isLong) external;
-    function closePosition(string memory symbol) external;
-    function positions(address user, string memory symbol) external view returns (
-        uint256 size, uint256 collateral, uint256 entryPrice, uint256 leverage, bool isLong, bool isOpen, uint256 openTime, uint256 lastFeeTime
-    );
-    function balances(address user) external view returns (uint256);
-    function getMarketSymbols() external view returns (string[] memory);
-    function getPosition(address user, string memory symbol) external view returns (PositionInfo memory);
+    /**
+     * @dev Handle token deposits from CrossChainManager (cross-chain deposits)
+     * @param user Original user who deposited on source chain
+     * @param token Token address (address(0) for native AVAX)
+     * @param amount Token amount
+     */
+    function handleDeposit(
+        address user,
+        address token,
+        uint256 amount
+    ) external payable onlyCrossChainManager {
+        _processDeposit(user, token, amount);
+    }
+    
+    /**
+     * @dev Direct deposit for AVAX native users (AVAX/LINK/USDC)
+     * @param token Token address (address(0) for native AVAX)
+     * @param amount Token amount
+     */
+    function depositDirect(address token, uint256 amount) external payable {
+        _processDeposit(msg.sender, token, amount);
+    }
+    
+    /**
+     * @dev Internal function to process deposits (both cross-chain and direct)
+     * @param user User address
+     * @param token Token address (address(0) for native AVAX)
+     * @param amount Token amount
+     */
+    function _processDeposit(
+        address user,
+        address token,
+        uint256 amount
+    ) internal {
+        require(amount > 0, "Amount must be > 0");
+        
+        uint256 usdcAmount;
+        
+        if (token == address(0)) {
+            // Native AVAX - convert to USDC
+            require(msg.value == amount, "AVAX amount mismatch");
+            usdcAmount = _convertAvaxToUsdc(amount);
+            userDeposits[user][token] += amount;
+        } else if (token == address(usdcToken)) {
+            // ONLY cross-chain USDC should reach here
+            // Direct AVAX users go to Perps.sol directly
+            usdcAmount = amount;
+            userDeposits[user][token] += amount;
+        } else if (token == address(linkToken)) {
+            // LINK token - convert to USDC
+            if (msg.sender != crossChainManager) {
+                // Direct deposit - transfer from user
+                linkToken.transferFrom(msg.sender, address(this), amount);
+            }
+            usdcAmount = _convertLinkToUsdc(amount);
+            userDeposits[user][token] += amount;
+        } else {
+            revert("Unsupported token");
+        }
+        
+        require(usdcAmount > 0, "Conversion resulted in 0 USDC");
+        
+        // Approve Perps contract to spend converted USDC
+        usdcToken.approve(address(perpsContract), usdcAmount);
+        
+        // Deposit USDC to Perps contract on behalf of user
+        _depositToPerps(user, usdcAmount);
+        
+        emit TokensConverted(user, token, amount, usdcAmount);
+        emit DepositedToPerps(user, usdcAmount);
+    }
+    
+    /**
+     * @dev Convert native AVAX to USDC using price oracle
+     */
+    function _convertAvaxToUsdc(uint256 avaxAmount) internal view returns (uint256) {
+        // Get AVAX price from oracle (8 decimals)
+        (uint256 avaxPriceUSD, ) = priceOracle.getPrice("AVAX/USD");
+        
+        // Convert AVAX (18 decimals) to USD value
+        // avaxAmount * price / 1e18 = USD value (8 decimals from price)
+        uint256 usdValue = (avaxAmount * avaxPriceUSD) / 1e18;
+        
+        // Convert to USDC (6 decimals)
+        // USD value (8 decimals) -> USDC (6 decimals)
+        return usdValue / 1e2;
+    }
+    
+    /**
+     * @dev Convert LINK tokens to USDC using price oracle
+     */
+    function _convertLinkToUsdc(uint256 linkAmount) internal view returns (uint256) {
+        // Get LINK price from oracle (8 decimals)
+        (uint256 linkPriceUSD, ) = priceOracle.getPrice("LINK/USD");
+        
+        // Convert LINK (18 decimals) to USD value
+        uint256 usdValue = (linkAmount * linkPriceUSD) / 1e18;
+        
+        // Convert to USDC (6 decimals)
+        return usdValue / 1e2;
+    }
+    
+    /**
+     * @dev Deposit USDC to Perps contract on behalf of user
+     */
+    function _depositToPerps(address user, uint256 usdcAmount) internal {
+        // Approve Perps contract to spend USDC
+        usdcToken.approve(address(perpsContract), usdcAmount);
+        
+        // Call new depositUSDCForUser function
+        perpsContract.depositUSDCForUser(user, usdcAmount);
+    }
+    
+    /**
+     * @dev Get user's deposit history
+     */
+    function getUserDeposits(address user, address token) external view returns (uint256) {
+        return userDeposits[user][token];
+    }
+    
+    /**
+     * @dev Preview conversion rates for any token
+     */
+    function previewConversion(address token, uint256 amount) external view returns (uint256 usdcAmount) {
+        if (token == address(0)) {
+            return _convertAvaxToUsdc(amount);
+        } else if (token == address(usdcToken)) {
+            return amount;
+        } else if (token == address(linkToken)) {
+            return _convertLinkToUsdc(amount);
+        }
+        return 0;
+    }
+    
+    /**
+     * @dev Preview conversion for direct deposits (convenience function)
+     */
+    function previewDirectDeposit(address token, uint256 amount) external view returns (
+        uint256 usdcAmount,
+        string memory tokenName
+    ) {
+        usdcAmount = this.previewConversion(token, amount);
+        
+        if (token == address(0)) {
+            tokenName = "AVAX";
+        } else if (token == address(usdcToken)) {
+            tokenName = "USDC";
+        } else if (token == address(linkToken)) {
+            tokenName = "LINK";
+        } else {
+            tokenName = "UNSUPPORTED";
+        }
+    }
+    
+    /**
+     * @dev Get current token prices in USD
+     */
+    function getTokenPrices() external view returns (
+        uint256 avaxPrice,
+        uint256 linkPrice
+    ) {
+        (avaxPrice, ) = priceOracle.getPrice("AVAX/USD");
+        (linkPrice, ) = priceOracle.getPrice("LINK/USD");
+    }
+    
+    /**
+     * @dev Emergency function to update contracts
+     */
+    function updateContracts(
+        address _priceOracle,
+        address _perpsContract,
+        address _crossChainManager
+    ) external {
+        // Add onlyOwner modifier in production
+        if (_priceOracle != address(0)) priceOracle = PriceOracle(_priceOracle);
+        if (_perpsContract != address(0)) perpsContract = Perps(_perpsContract);
+        if (_crossChainManager != address(0)) crossChainManager = _crossChainManager;
+    }
+    
+    receive() external payable {}
 }

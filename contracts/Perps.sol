@@ -25,10 +25,16 @@ contract Perps is PerpsEvents {
 
     string[] public marketSymbols;
     address public owner;
+    address public poolManager; // Pool manager for cross-chain deposits
     IERC20 public usdcToken;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
+        _;
+    }
+
+    modifier onlyPoolManager() {
+        require(msg.sender == poolManager, "Only pool manager");
         _;
     }
 
@@ -49,6 +55,13 @@ contract Perps is PerpsEvents {
     }
 
     /**
+     * @dev Set pool manager address (for cross-chain deposits)
+     */
+    function setPoolManager(address _poolManager) external onlyOwner {
+        poolManager = _poolManager;
+    }
+
+    /**
      * @dev Deposit USDC collateral
      * @param usdcAmount Amount of USDC to deposit (6 decimals)
      */
@@ -63,6 +76,25 @@ contract Perps is PerpsEvents {
         balances[msg.sender] += usdcAmount;
 
         emit Deposit(msg.sender, usdcAmount);
+    }
+
+    /**
+     * @dev Deposit USDC collateral on behalf of user (for cross-chain deposits)
+     * @param user User address to credit the deposit to
+     * @param usdcAmount Amount of USDC to deposit (6 decimals)
+     */
+    function depositUSDCForUser(address user, uint256 usdcAmount) external onlyPoolManager {
+        require(user != address(0), "Invalid user address");
+        require(usdcAmount > 0, "Deposit amount must be > 0");
+        require(balances[user] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
+
+        // Transfer USDC from PoolManager to Perps
+        usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+        
+        // Add to user's balance (USDC has 6 decimals)
+        balances[user] += usdcAmount;
+
+        emit Deposit(user, usdcAmount);
     }
 
     /**
@@ -313,7 +345,6 @@ contract Perps is PerpsEvents {
         }
         return maxExposure - currentExposure;
     }
-
 
     /**
      * @dev Get user limits and current usage

@@ -6,82 +6,182 @@ import {Client} from "@chainlink/contracts-ccip/src/v0.8/ccip/libraries/Client.s
 import {CCIPReceiver} from "@chainlink/contracts-ccip/src/v0.8/ccip/applications/CCIPReceiver.sol";
 import {IERC20} from "@chainlink/contracts-ccip/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
 
+/**
+ * @title CrossChainManager
+ * @dev Handles cross-chain token transfers for perps platform
+ * Sepolia → AVAX only (AVAX users deposit directly to PoolManager)
+ * Deployed on both Sepolia and AVAX Fuji
+ */
 contract CrossChainManager is CCIPReceiver {
-    // CCIP router for sending messages
     IRouterClient private immutable router;
-    // LINK token for paying CCIP fees
     IERC20 private immutable linkToken;
-    // USDC token being transferred
-    IERC20 private immutable collateralToken;
-
-    // Pool contract address (only on Avax)
-    address public poolContract;
-    // Chain selectors for CCIP
-    uint64 public constant AVAX_CHAIN = 14767482510784806043;
+    
+    // Supported tokens on each chain
+    IERC20 public usdcToken;
+    IERC20 public linkTokenERC20;
+    
+    // Pool Manager address (only set on AVAX)
+    address public poolManager;
+    
+    // Chain selectors
+    uint64 public constant AVAX_FUJI_CHAIN = 14767482510784806043;
     uint64 public constant SEPOLIA_CHAIN = 16015286601757825753;
-
+    
+    // Current chain selector
+    uint64 public immutable currentChain;
+    
+    event TokensSent(address indexed user, address token, uint256 amount, uint64 targetChain);
+    event TokensReceived(address indexed user, address token, uint256 amount);
+    
     constructor(
         address _router,
         address _linkToken,
-        address _collateralToken
+        address _usdcToken,
+        address _linkTokenERC20,
+        uint64 _currentChain
     ) CCIPReceiver(_router) {
         router = IRouterClient(_router);
         linkToken = IERC20(_linkToken);
-        collateralToken = IERC20(_collateralToken);
+        usdcToken = IERC20(_usdcToken);
+        linkTokenERC20 = IERC20(_linkTokenERC20);
+        currentChain = _currentChain;
     }
-
-    // Called on Sepolia when user deposits USDC
-    function sendDeposit(address user, uint256 amount) external {
-        // Take user's USDC
-        collateralToken.transferFrom(user, address(this), amount);
+    
+    /**
+     * @dev User deposits tokens to be sent cross-chain from Sepolia to AVAX
+     * @param token Token address (use address(0) for native ETH)
+     * @param amount Token amount
+     */
+    function depositAndSend(address token, uint256 amount) external payable {
+        require(currentChain == SEPOLIA_CHAIN, "Only call on Sepolia");
         
-        // Send CCIP message to Avax telling pool to front this amount
-        _sendMessage(AVAX_CHAIN, true, user, amount);
-    }
-
-    // Called by Pool on Avax to send USDC back to user on Sepolia  
-    function sendRefund(address user, uint256 amount) external {
-        require(msg.sender == poolContract, "Only pool");
-        _sendMessage(SEPOLIA_CHAIN, false, user, amount);
-    }
-
-    // Internal function to send CCIP message
-    function _sendMessage(uint64 targetChain, bool isDeposit, address user, uint256 amount) internal {
-        // Create CCIP message
-        Client.EVM2AnyMessage memory ccipMessage = Client.EVM2AnyMessage({
-            receiver: abi.encode(address(this)), // Send to same contract on other chain
-            data: abi.encode(isDeposit, user, amount), // Pack the data
-            tokenAmounts: new Client.EVMTokenAmount[](0), // No tokens, just message
-            extraArgs: Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: 200_000})),
-            feeToken: address(linkToken) // Pay fees in LINK
-        });
-
-        // Calculate and pay CCIP fees
-        uint256 fees = router.getFee(targetChain, ccipMessage);
-        linkToken.approve(address(router), fees);
-        router.ccipSend(targetChain, ccipMessage);
-    }
-
-    // Receives CCIP messages from other chains
-    function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
-        // Decode the message data
-        (bool isDeposit, address user, uint256 amount) = abi.decode(message.data, (bool, address, uint256));
-
-        if (isDeposit) {
-            // On Avax: tell pool to front collateral for user
-            IPool(poolContract).handleDeposit(user, amount);
+        uint256 nativeAmount = 0;
+        address tokenToSend = token;
+        
+        if (token == address(0)) {
+            // Native ETH deposit
+            require(msg.value > 0, "Send ETH");
+            nativeAmount = msg.value;
+            amount = msg.value;
         } else {
-            // On Sepolia: send USDC back to user
-            collateralToken.transfer(user, amount);
+            // ERC20 token deposit (USDC, LINK)
+            require(
+                token == address(usdcToken) || token == address(linkTokenERC20),
+                "Unsupported token"
+            );
+            IERC20(token).transferFrom(msg.sender, address(this), amount);
+        }
+        
+        _sendTokensCrossChain(msg.sender, tokenToSend, amount, nativeAmount);
+    }
+    
+    /**
+     * @dev Internal function to send tokens cross-chain via CCIP
+     */
+    function _sendTokensCrossChain(
+        address user,
+        address token,
+        uint256 amount,
+        uint256 nativeAmount
+    ) internal {
+        Client.EVMTokenAmount[] memory tokenAmounts;
+        
+        if (token == address(0)) {
+            // Native token transfer
+            tokenAmounts = new Client.EVMTokenAmount[](1);
+            tokenAmounts[0] = Client.EVMTokenAmount({
+                token: address(0), // Native token
+                amount: nativeAmount
+            });
+        } else {
+            // ERC20 token transfer
+            tokenAmounts = new Client.EVMTokenAmount[](1);
+            tokenAmounts[0] = Client.EVMTokenAmount({
+                token: token,
+                amount: amount
+            });
+            
+            // Approve CCIP router to spend tokens
+            IERC20(token).approve(address(router), amount);
+        }
+        
+        Client.EVM2AnyMessage memory ccipMessage = Client.EVM2AnyMessage({
+            receiver: abi.encode(address(this)), // Same contract on AVAX
+            data: abi.encode(user, token, amount), // User and token info
+            tokenAmounts: tokenAmounts,
+            extraArgs: Client._argsToBytes(
+                Client.EVMExtraArgsV1({gasLimit: 300_000})
+            ),
+            feeToken: address(linkToken)
+        });
+        
+        // Calculate and pay CCIP fees
+        uint256 fees = router.getFee(AVAX_FUJI_CHAIN, ccipMessage);
+        linkToken.transferFrom(msg.sender, address(this), fees);
+        linkToken.approve(address(router), fees);
+        
+        // Send message
+        router.ccipSend{value: nativeAmount}(AVAX_FUJI_CHAIN, ccipMessage);
+        
+        emit TokensSent(user, token, amount, AVAX_FUJI_CHAIN);
+    }
+    
+    /**
+     * @dev Receive CCIP message on AVAX chain
+     */
+    function _ccipReceive(Client.Any2EVMMessage memory message) internal override {
+        require(currentChain == AVAX_FUJI_CHAIN, "Only receive on AVAX");
+        require(poolManager != address(0), "Pool manager not set");
+        
+        // Decode user and token info
+        (address user, address originalToken, uint256 amount) = abi.decode(
+            message.data,
+            (address, address, uint256)
+        );
+        
+        // Handle received tokens
+        if (message.destTokenAmounts.length > 0) {
+            Client.EVMTokenAmount memory tokenAmount = message.destTokenAmounts[0];
+            
+            if (tokenAmount.token == address(0)) {
+                // Native AVAX received - forward to pool manager
+                IPoolManager(poolManager).handleDeposit{value: tokenAmount.amount}(
+                    user,
+                    address(0),
+                    tokenAmount.amount
+                );
+            } else {
+                // ERC20 token received - approve and forward to pool manager
+                IERC20(tokenAmount.token).approve(poolManager, tokenAmount.amount);
+                IPoolManager(poolManager).handleDeposit(
+                    user,
+                    tokenAmount.token,
+                    tokenAmount.amount
+                );
+            }
+            
+            emit TokensReceived(user, tokenAmount.token, tokenAmount.amount);
         }
     }
-
-    // Set pool contract address (only needed on Avax)
-    function setPoolContract(address _pool) external {
-        poolContract = _pool;
+    
+    /**
+     * @dev Set pool manager address (only on AVAX)
+     */
+    function setPoolManager(address _poolManager) external {
+        require(currentChain == AVAX_FUJI_CHAIN, "Only on AVAX");
+        poolManager = _poolManager;
     }
+    
+    /**
+     * @dev Emergency native token withdrawal
+     */
+    function withdrawNative(uint256 amount) external {
+        payable(msg.sender).transfer(amount);
+    }
+    
+    receive() external payable {}
 }
 
-interface IPool {
-    function handleDeposit(address user, uint256 amount) external;
+interface IPoolManager {
+    function handleDeposit(address user, address token, uint256 amount) external payable;
 }
