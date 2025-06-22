@@ -19,6 +19,12 @@ contract PerpsEvents {
         uint256 holdingFees
     );
 
+    event PositionLiquidated(
+        address indexed user,
+        string symbol,
+        uint256 collateralLost,
+        address indexed liquidator
+    );
     
     event MarketAdded(string symbol, uint256 maxLeverage);
     event Deposit(address indexed user, uint256 amount);

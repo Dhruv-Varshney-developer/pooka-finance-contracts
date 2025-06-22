@@ -28,6 +28,10 @@ contract Perps is PerpsEvents {
     address public poolManager; // Pool manager for cross-chain deposits
     IERC20 public usdcToken;
 
+    // User tracking for liquidations
+    address[] public allUsers;
+    mapping(address => bool) public hasPositionHistory;
+
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
         _;
@@ -154,6 +158,12 @@ contract Perps is PerpsEvents {
             "Max $300 total exposure per user (3x $100 collateral)"
         );
 
+        // Track user for liquidations
+        if (!hasPositionHistory[msg.sender]) {
+            allUsers.push(msg.sender);
+            hasPositionHistory[msg.sender] = true;
+        }
+
         // Create position
         positions[msg.sender][symbol] = PerpsStructs.Position({
             sizeUSD: positionSizeUSD,
@@ -229,6 +239,79 @@ contract Perps is PerpsEvents {
         }
 
         emit PositionClosed(msg.sender, symbol, pnlUSDC, holdingFees + profitTax);
+    }
+
+    /**
+     * @dev Liquidate a single position if liquidatable
+     */
+    function liquidatePosition(address user, string memory symbol) 
+        external 
+        returns (bool) 
+    {
+        PerpsStructs.Position storage position = positions[user][symbol];
+        require(position.isOpen, "No open position");
+
+        (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
+        require(
+            calculator.canLiquidate(position, markets[symbol], currentPrice),
+            "Not liquidatable"
+        );
+
+        // Update market totals before closing
+        if (position.isLong) {
+            markets[symbol].totalLongSizeUSD -= position.sizeUSD;
+        } else {
+            markets[symbol].totalShortSizeUSD -= position.sizeUSD;
+        }
+
+        // Close position - user loses all remaining collateral
+        uint256 collateralLost = position.collateralUSDC;
+        position.isOpen = false;
+        position.lastFeeTime = block.timestamp;
+        
+        emit PositionLiquidated(user, symbol, collateralLost, msg.sender);
+        return true;
+    }
+
+    /**
+     * @dev Liquidate all liquidatable positions (for automation)
+     */
+    function liquidatePositions() external returns (uint256 liquidated) {
+        liquidated = 0;
+        
+        // Iterate through all users who ever had positions
+        for (uint256 i = 0; i < allUsers.length; i++) {
+            address user = allUsers[i];
+            
+            // Check all markets for this user
+            for (uint256 j = 0; j < marketSymbols.length; j++) {
+                string memory symbol = marketSymbols[j];
+                PerpsStructs.Position storage position = positions[user][symbol];
+                
+                if (!position.isOpen) continue;
+                
+                (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
+                
+                if (calculator.canLiquidate(position, markets[symbol], currentPrice)) {
+                    // Update market totals
+                    if (position.isLong) {
+                        markets[symbol].totalLongSizeUSD -= position.sizeUSD;
+                    } else {
+                        markets[symbol].totalShortSizeUSD -= position.sizeUSD;
+                    }
+                    
+                    // Close position
+                    uint256 collateralLost = position.collateralUSDC;
+                    position.isOpen = false;
+                    position.lastFeeTime = block.timestamp;
+                    
+                    emit PositionLiquidated(user, symbol, collateralLost, msg.sender);
+                    liquidated++;
+                }
+            }
+        }
+        
+        return liquidated;
     }
 
     /**
@@ -320,6 +403,14 @@ contract Perps is PerpsEvents {
 
     function getMarketSymbols() external view returns (string[] memory) {
         return marketSymbols;
+    }
+
+    function getAllUsers() external view returns (address[] memory) {
+        return allUsers;
+    }
+
+    function getAllUsersCount() external view returns (uint256) {
+        return allUsers.length;
     }
 
     /**
