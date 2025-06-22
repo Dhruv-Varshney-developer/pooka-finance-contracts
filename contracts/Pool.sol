@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 import "contracts/PriceOracle.sol";
 import "./Perps.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
 
 /**
  * @title PoolManager
@@ -13,7 +15,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * 2. Direct: AVAX users → depositDirect()
  * Deployed only on AVAX Fuji
  */
-contract PoolManager {
+contract PoolManager is Ownable {
     PriceOracle public priceOracle;
     Perps public perpsContract;
     address public crossChainManager;
@@ -44,7 +46,7 @@ contract PoolManager {
         address _crossChainManager,
         address _usdcToken,
         address _linkToken
-    ) {
+    )Ownable() {
         priceOracle = PriceOracle(_priceOracle);
         perpsContract = Perps(_perpsContract);
         crossChainManager = _crossChainManager;
@@ -224,8 +226,7 @@ contract PoolManager {
         address _priceOracle,
         address _perpsContract,
         address _crossChainManager
-    ) external {
-        // Add onlyOwner modifier in production
+    ) external onlyOwner{
         if (_priceOracle != address(0)) priceOracle = PriceOracle(_priceOracle);
         if (_perpsContract != address(0)) perpsContract = Perps(_perpsContract);
         if (_crossChainManager != address(0)) crossChainManager = _crossChainManager;
