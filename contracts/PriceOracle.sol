@@ -31,8 +31,8 @@ contract PriceOracle {
     );
 
     constructor() {
-        _setPriceFeed("BTC/USD", 0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43);
-        _setPriceFeed("ETH/USD", 0x694AA1769357215DE4FAC081bf1f309aDC325306);
+        _setPriceFeed("BTC/USD", 0x31CF013A08c6Ac228C94551d535d5BAfE19c602a);
+        _setPriceFeed("ETH/USD", 0x86d67c3D38D2bCeE722E601025C25a575021c6EA);
     }
 
     function _setPriceFeed(string memory symbol, address feedAddress) internal {

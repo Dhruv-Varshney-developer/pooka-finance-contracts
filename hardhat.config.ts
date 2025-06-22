@@ -2,6 +2,7 @@ import type { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox-viem";
 import "@nomicfoundation/hardhat-verify";
 import "dotenv/config";
+import "@nomicfoundation/hardhat-ethers";
 
 
 const config: HardhatUserConfig = {
