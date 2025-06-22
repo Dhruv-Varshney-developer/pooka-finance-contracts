@@ -21,5 +21,8 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
     "viem": "^2.7.6"
+  },
+  "dependencies": {
+    "@chainlink/contracts-ccip": "^1.6.0"
   }
 }
