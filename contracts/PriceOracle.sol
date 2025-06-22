@@ -9,26 +9,11 @@ import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.so
  */
 contract PriceOracle {
     mapping(string => AggregatorV3Interface) public priceFeeds;
-    mapping(string => uint256) public lastUpdated;
 
-    struct DailyData {
-        uint256 price24hAgo; // Price 24h ago
-        uint256 high24h; // 24h high
-        uint256 low24h; // 24h low
-        uint256 lastUpdateTime; // When this was last updated
-    }
-    mapping(string => DailyData) public dailyData;
-    mapping(string => uint256) public lastDailyUpdate;
-
-    uint256 public constant UPDATE_INTERVAL = 1 hours;
+  
 
     event PriceFeedUpdated(string symbol, address feedAddress);
-    event DailyDataUpdated(
-        string symbol,
-        uint256 high,
-        uint256 low,
-        uint256 change
-    );
+    
 
     constructor() {
         _setPriceFeed("BTC/USD", 0x31CF013A08c6Ac228C94551d535d5BAfE19c602a);
