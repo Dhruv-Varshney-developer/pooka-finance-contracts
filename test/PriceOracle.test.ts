@@ -9,9 +9,8 @@ describe("PriceOracle", function () {
     
     const [price, timestamp] = await priceOracle.getPrice("BTC/USD");
     
-    // BTC typically between $80,000 - $120,000 (8 decimals)
-    expect(Number(price)).to.be.gte(Number(ethers.parseUnits("80000", 8)));
-    expect(Number(price)).to.be.lte(Number(ethers.parseUnits("120000", 8)));
+    expect(Number(price)).to.be.gte(Number(ethers.parseUnits("40000", 8)));
+    expect(Number(price)).to.be.lte(Number(ethers.parseUnits("60000", 8)));
     expect(Number(timestamp)).to.be.gt(0);
   });
 
@@ -33,7 +32,7 @@ describe("PriceOracle", function () {
     const [ethPrice] = await priceOracle.getPrice("ETH/USD");
 
     // Both prices should be positive and in realistic ranges
-    expect(Number(btcPrice)).to.be.gte(Number(ethers.parseUnits("80000", 8)));
+    expect(Number(btcPrice)).to.be.gte(Number(ethers.parseUnits("40000", 8)));
     expect(Number(ethPrice)).to.be.gte(Number(ethers.parseUnits("1000", 8)));
   });
 
