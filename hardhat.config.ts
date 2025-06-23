@@ -20,11 +20,11 @@ const config: HardhatUserConfig = {
         "https://api.avax-test.network/ext/bc/C/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
     },
-    hardhat: {
-      forking: {
-        url: process.env.AVAX_ALCHEMY || "" ,
-      },
-    },
+    //  hardhat: {
+    //    forking: {
+    //      url: process.env.AVAX_ALCHEMY || "" ,
+    //    },
+    //  },
   },
   etherscan: {
     apiKey: {
