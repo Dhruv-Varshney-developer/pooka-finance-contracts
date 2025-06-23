@@ -6,6 +6,7 @@ import "@nomicfoundation/hardhat-ethers";
 
 const config: HardhatUserConfig = {
   solidity: "0.8.28",
+
   networks: {
     sepolia: {
       url:
@@ -18,6 +19,11 @@ const config: HardhatUserConfig = {
         process.env.AVAX_RPC_URL ||
         "https://api.avax-test.network/ext/bc/C/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    },
+    hardhat: {
+      forking: {
+        url: process.env.AVAX_ALCHEMY || "" ,
+      },
     },
   },
   etherscan: {
