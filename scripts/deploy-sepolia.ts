@@ -12,8 +12,7 @@ async function main(): Promise<void> {
     "0x779877A7B0D9E8603169DdbD7836e478b4624789";
   const SEPOLIA_USDC_TOKEN: string =
     "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
-  const SEPOLIA_WETH_TOKEN: string =
-    "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14"; // Sepolia WETH
+
   const SEPOLIA_CHAIN_SELECTOR: bigint = BigInt("16015286601757825753");
 
   // Deploy CrossChainManager on Sepolia
@@ -22,7 +21,6 @@ async function main(): Promise<void> {
     SEPOLIA_CCIP_ROUTER,
     SEPOLIA_LINK_TOKEN,
     SEPOLIA_USDC_TOKEN,
-    SEPOLIA_WETH_TOKEN,
     SEPOLIA_CHAIN_SELECTOR,
   ]);
 

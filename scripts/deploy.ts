@@ -10,8 +10,7 @@ async function main(): Promise<void> {
     "0x5425890298aed601595a70AB815c96711a31Bc65"; // Fuji USDC
   const LINK_TOKEN_ADDRESS: string =
     "0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846"; // Fuji LINK
-  const WETH_TOKEN_ADDRESS: string =
-    "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB"; // Fuji WETH
+
 
   const FUJI_CCIP_ROUTER: string = "0xF694E193200268f9a4868e4Aa017A0118C9a8177";
   const FUJI_CHAIN_SELECTOR: bigint = BigInt("14767482510784806043");
@@ -51,7 +50,6 @@ async function main(): Promise<void> {
     "0x0000000000000000000000000000000000000000", // Will be set after CrossChainManager deployment
     USDC_TOKEN_ADDRESS,
     LINK_TOKEN_ADDRESS,
-    WETH_TOKEN_ADDRESS,
   ]);
   console.log(`✅ PoolManager: ${poolManager.address}`);
 
@@ -61,7 +59,6 @@ async function main(): Promise<void> {
     FUJI_CCIP_ROUTER,
     LINK_TOKEN_ADDRESS,
     USDC_TOKEN_ADDRESS,
-    WETH_TOKEN_ADDRESS,
     FUJI_CHAIN_SELECTOR,
   ]);
   console.log(`✅ CrossChainManager: ${crossChainManager.address}`);
