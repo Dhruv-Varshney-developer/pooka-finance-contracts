@@ -71,6 +71,20 @@ async function main() {
   await crossChainManager.write.setPoolManager([poolManager.address]);
   console.log("✅ Contract connections established");
 
+  // Step 10: Fund PoolManager with USDC
+  console.log("\n10. Funding PoolManager with USDC...");
+  const [deployer] = await hre.viem.getWalletClients();
+  const usdcContract = await hre.viem.getContractAt("IERC20", USDC_TOKEN_ADDRESS);
+  
+  // Transfer 100 USDC (100 * 10^6 = 100,000,000) to PoolManager
+  const fundingAmount = BigInt("100000000"); // 100 USDC (6 decimals)
+  await usdcContract.write.transfer([poolManager.address, fundingAmount]);
+  console.log(`✅ Funded PoolManager with 100 USDC`);
+
+  // Verify PoolManager balance
+  const poolManagerBalance = await usdcContract.read.balanceOf([poolManager.address]);
+  console.log(`📊 PoolManager USDC balance: ${poolManagerBalance} (${Number(poolManagerBalance) / 1e6} USDC)`);
+
   // Summary
   console.log("\n📋 DEPLOYMENT SUMMARY:");
   console.log(`PriceOracle: ${priceOracle.address}`);
@@ -97,6 +111,7 @@ async function main() {
   console.log("1. Set up Chainlink price feeds in PriceOracle");
   console.log("2. Register automation contracts with Chainlink Automation");
   console.log("3. Fund automation contracts with LINK tokens");
+  console.log("4. PoolManager is now funded and ready for deposits!");
 }
 
 main().catch((error) => {
