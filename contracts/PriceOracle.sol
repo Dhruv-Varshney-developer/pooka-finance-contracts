@@ -10,14 +10,14 @@ import "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.so
 contract PriceOracle {
     mapping(string => AggregatorV3Interface) public priceFeeds;
 
-  
-
     event PriceFeedUpdated(string symbol, address feedAddress);
-    
 
     constructor() {
+        // Real Chainlink price feeds on Fuji
         _setPriceFeed("BTC/USD", 0x31CF013A08c6Ac228C94551d535d5BAfE19c602a);
         _setPriceFeed("ETH/USD", 0x86d67c3D38D2bCeE722E601025C25a575021c6EA);
+        _setPriceFeed("AVAX/USD", 0x5498BB86BC934c8D34FDA08E81D444153d0D06aD);
+        _setPriceFeed("LINK/USD", 0x34C4c526902d88a3Aa98DB8a9b802603EB1E3470);
     }
 
     function _setPriceFeed(string memory symbol, address feedAddress) internal {
