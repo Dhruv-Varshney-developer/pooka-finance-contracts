@@ -19,7 +19,6 @@ contract CrossChainManager is CCIPReceiver, Ownable {
 
     // Supported tokens on each chain
     IERC20 public usdcToken;
-    IERC20 public linkTokenERC20;
 
     // Pool Manager address (only set on AVAX)
     address public poolManager;
@@ -30,6 +29,8 @@ contract CrossChainManager is CCIPReceiver, Ownable {
 
     // Current chain selector
     uint64 public immutable currentChain;
+
+    IERC20 public wethToken;
 
     event TokensSent(
         address indexed user,
@@ -43,13 +44,14 @@ contract CrossChainManager is CCIPReceiver, Ownable {
         address _router,
         address _linkToken,
         address _usdcToken,
-        address _linkTokenERC20,
+        address _wethToken,
         uint64 _currentChain
     ) CCIPReceiver(_router) Ownable() {
         router = IRouterClient(_router);
         linkToken = IERC20(_linkToken);
         usdcToken = IERC20(_usdcToken);
-        linkTokenERC20 = IERC20(_linkTokenERC20);
+        wethToken = IERC20(_wethToken);
+
         currentChain = _currentChain;
     }
 
@@ -61,24 +63,24 @@ contract CrossChainManager is CCIPReceiver, Ownable {
     function depositAndSend(address token, uint256 amount) external payable {
         require(currentChain == SEPOLIA_CHAIN, "Only call on Sepolia");
 
-        uint256 nativeAmount = 0;
-        address tokenToSend = token;
-
         if (token == address(0)) {
             // Native ETH deposit
             require(msg.value > 0, "Send ETH");
-            nativeAmount = msg.value;
-            amount = msg.value;
-        } else {
-            // ERC20 token deposit (USDC, LINK)
-            require(
-                token == address(usdcToken) || token == address(linkTokenERC20),
-                "Unsupported token"
-            );
-            IERC20(token).transferFrom(msg.sender, address(this), amount);
-        }
+            IWETH(address(wethToken)).deposit{value: msg.value}();
 
-        _sendTokensCrossChain(msg.sender, tokenToSend, amount, nativeAmount);
+            token = address(wethToken); // Send WETH instead
+            amount = msg.value;
+        }
+        // Handle WETH/USDC/LINK
+        require(
+            token == address(usdcToken) ||
+                token == address(linkToken) ||
+                token == address(wethToken),
+            "Unsupported token"
+        );
+        IERC20(token).transferFrom(msg.sender, address(this), amount);
+
+        _sendTokensCrossChain(msg.sender, token, amount, 0);
     }
 
     /**
@@ -135,9 +137,10 @@ contract CrossChainManager is CCIPReceiver, Ownable {
     /**
      * @dev Receive CCIP message on AVAX chain
      */
-    function _ccipReceive(
-        Client.Any2EVMMessage memory message
-    ) internal override {
+    function _ccipReceive(Client.Any2EVMMessage memory message)
+        internal
+        override
+    {
         require(currentChain == AVAX_FUJI_CHAIN, "Only receive on AVAX");
         require(poolManager != address(0), "Pool manager not set");
 
@@ -206,4 +209,8 @@ interface IPoolManager {
         address token,
         uint256 amount
     ) external payable;
+}
+
+interface IWETH {
+    function deposit() external payable;
 }
