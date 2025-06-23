@@ -22,7 +22,6 @@ contract PoolManager is Ownable {
     // Supported tokens on AVAX
     IERC20 public usdcToken; // 6 decimals
     IERC20 public linkToken; // 18 decimals
-    IERC20 public wethToken; // 18 decimals
 
     // Track deposited amounts per user (in original tokens for accounting)
     mapping(address => mapping(address => uint256)) public userDeposits;
@@ -46,15 +45,13 @@ contract PoolManager is Ownable {
         address _perpsContract,
         address _crossChainManager,
         address _usdcToken,
-        address _linkToken,
-        address _wethToken  
+        address _linkToken
     ) Ownable() {
         priceOracle = PriceOracle(_priceOracle);
         perpsContract = Perps(_perpsContract);
         crossChainManager = _crossChainManager;
         usdcToken = IERC20(_usdcToken);
         linkToken = IERC20(_linkToken);
-        wethToken = IERC20(_wethToken);  
     }
 
     /**
@@ -72,7 +69,7 @@ contract PoolManager is Ownable {
     }
 
     /**
-     * @dev Direct deposit for AVAX native users (AVAX/LINK/USDC/WETH)
+     * @dev Direct deposit for AVAX native users (AVAX/LINK/USDC)
      * @param token Token address (address(0) for native AVAX)
      * @param amount Token amount
      */
@@ -113,15 +110,7 @@ contract PoolManager is Ownable {
             }
             usdcAmount = _convertLinkToUsdc(amount);
             userDeposits[user][token] += amount;
-        } else if (token == address(wethToken)) {
-            // WETH token - convert to USDC
-            if (msg.sender != crossChainManager) {
-                // Direct deposit - transfer from user
-                wethToken.transferFrom(msg.sender, address(this), amount);
-            }
-            usdcAmount = _convertWethToUsdc(amount);
-            userDeposits[user][token] += amount;
-        } else {
+        }  else {
             revert("Unsupported token");
         }
 
@@ -175,15 +164,7 @@ contract PoolManager is Ownable {
         return usdValue / 1e2;
     }
 
-    /**
-     * @dev Convert WETH tokens to USDC using price oracle
-     */
-    function _convertWethToUsdc(uint256 wethAmount) internal view returns (uint256) {
-        (uint256 ethPriceUSD, ) = priceOracle.getPrice("ETH/USD");
-        uint256 usdValue = (wethAmount * ethPriceUSD) / 1e18;
-        return usdValue / 1e2; // Convert to USDC (6 decimals)
-    }
-
+    
     /**
      * @dev Deposit USDC to Perps contract on behalf of user
      */
@@ -220,9 +201,7 @@ contract PoolManager is Ownable {
             return amount;
         } else if (token == address(linkToken)) {
             return _convertLinkToUsdc(amount);
-        } else if (token == address(wethToken)) {
-            return _convertWethToUsdc(amount);
-        }
+        } 
         return 0;
     }
 
@@ -242,9 +221,8 @@ contract PoolManager is Ownable {
             tokenName = "USDC";
         } else if (token == address(linkToken)) {
             tokenName = "LINK";
-        } else if (token == address(wethToken)) {
-            tokenName = "WETH";
-        } else {
+        } 
+        else {
             tokenName = "UNSUPPORTED";
         }
     }
@@ -255,11 +233,10 @@ contract PoolManager is Ownable {
     function getTokenPrices()
         external
         view
-        returns (uint256 avaxPrice, uint256 linkPrice, uint256 ethPrice)  
+        returns (uint256 avaxPrice, uint256 linkPrice)  
     {
         (avaxPrice, ) = priceOracle.getPrice("AVAX/USD");
         (linkPrice, ) = priceOracle.getPrice("LINK/USD");
-        (ethPrice, ) = priceOracle.getPrice("ETH/USD");  
     }
 
     /**

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// TODO: Add ETH support
 pragma solidity ^0.8.19;
 
 import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
@@ -9,7 +10,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title CrossChainManager
- * @dev Handles cross-chain token transfers for perps platform
+ * @dev Handles cross-chain USDC transfers for perps platform
+ * ONLY SUPPORTS: USDC (what CCIP supports!)
  * Sepolia → AVAX only (AVAX users deposit directly to PoolManager)
  * Deployed on both Sepolia and AVAX Fuji
  */
@@ -17,7 +19,7 @@ contract CrossChainManager is CCIPReceiver, Ownable {
     IRouterClient private immutable router;
     IERC20 private immutable linkToken;
 
-    // Supported tokens on each chain
+    // ONLY supported token: USDC
     IERC20 public usdcToken;
 
     // Pool Manager address (only set on AVAX)
@@ -29,8 +31,6 @@ contract CrossChainManager is CCIPReceiver, Ownable {
 
     // Current chain selector
     uint64 public immutable currentChain;
-
-    IERC20 public wethToken;
 
     event TokensSent(
         address indexed user,
@@ -44,75 +44,50 @@ contract CrossChainManager is CCIPReceiver, Ownable {
         address _router,
         address _linkToken,
         address _usdcToken,
-        address _wethToken,
         uint64 _currentChain
     ) CCIPReceiver(_router) Ownable() {
         router = IRouterClient(_router);
         linkToken = IERC20(_linkToken);
         usdcToken = IERC20(_usdcToken);
-        wethToken = IERC20(_wethToken);
-
         currentChain = _currentChain;
     }
 
     /**
-     * @dev User deposits tokens to be sent cross-chain from Sepolia to AVAX
-     * @param token Token address (use address(0) for native ETH)
+     * @dev User deposits USDC to be sent cross-chain from Sepolia to AVAX
+     * @param token Token address (ONLY USDC supported!)
      * @param amount Token amount
      */
-    function depositAndSend(address token, uint256 amount) external payable {
+    function depositAndSend(address token, uint256 amount) external {
         require(currentChain == SEPOLIA_CHAIN, "Only call on Sepolia");
+        require(token == address(usdcToken), "Only USDC supported for cross-chain");
+        require(amount > 0, "Amount must be > 0");
 
-        if (token == address(0)) {
-            // Native ETH deposit
-            require(msg.value > 0, "Send ETH");
-            IWETH(address(wethToken)).deposit{value: msg.value}();
+        // Transfer USDC from user
+        usdcToken.transferFrom(msg.sender, address(this), amount);
 
-            token = address(wethToken); // Send WETH instead
-            amount = msg.value;
-        }
-        // Handle WETH/USDC/LINK
-        require(
-            token == address(usdcToken) ||
-                token == address(linkToken) ||
-                token == address(wethToken),
-            "Unsupported token"
-        );
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
-
-        _sendTokensCrossChain(msg.sender, token, amount, 0);
+        // Send USDC cross-chain
+        _sendTokensCrossChain(msg.sender, token, amount);
     }
 
     /**
-     * @dev Internal function to send tokens cross-chain via CCIP
+     * @dev Internal function to send USDC cross-chain via CCIP
      */
     function _sendTokensCrossChain(
         address user,
         address token,
-        uint256 amount,
-        uint256 nativeAmount
+        uint256 amount
     ) internal {
-        Client.EVMTokenAmount[] memory tokenAmounts;
+        // Prepare USDC transfer
+        Client.EVMTokenAmount[] memory tokenAmounts = new Client.EVMTokenAmount[](1);
+        tokenAmounts[0] = Client.EVMTokenAmount({
+            token: token,
+            amount: amount
+        });
 
-        if (token == address(0)) {
-            // Native token transfer
-            tokenAmounts = new Client.EVMTokenAmount[](1);
-            tokenAmounts[0] = Client.EVMTokenAmount({
-                token: address(0), // Native token
-                amount: nativeAmount
-            });
-        } else {
-            // ERC20 token transfer
-            tokenAmounts = new Client.EVMTokenAmount[](1);
-            tokenAmounts[0] = Client.EVMTokenAmount({
-                token: token,
-                amount: amount
-            });
+        // Approve CCIP router to spend USDC
+        IERC20(token).approve(address(router), amount);
 
-            // Approve CCIP router to spend tokens
-            IERC20(token).approve(address(router), amount);
-        }
-
+        // Create CCIP message
         Client.EVM2AnyMessage memory ccipMessage = Client.EVM2AnyMessage({
             receiver: abi.encode(address(this)), // Same contract on AVAX
             data: abi.encode(user, token, amount), // User and token info
@@ -123,13 +98,13 @@ contract CrossChainManager is CCIPReceiver, Ownable {
             feeToken: address(linkToken)
         });
 
-        // Calculate and pay CCIP fees
+        // Calculate and pay CCIP fees in LINK
         uint256 fees = router.getFee(AVAX_FUJI_CHAIN, ccipMessage);
-        linkToken.transferFrom(msg.sender, address(this), fees);
+        require(linkToken.balanceOf(address(this)) >= fees, "Insufficient LINK for fees");
         linkToken.approve(address(router), fees);
 
-        // Send message
-        router.ccipSend{value: nativeAmount}(AVAX_FUJI_CHAIN, ccipMessage);
+        // Send USDC cross-chain
+        router.ccipSend(AVAX_FUJI_CHAIN, ccipMessage);
 
         emit TokensSent(user, token, amount, AVAX_FUJI_CHAIN);
     }
@@ -150,29 +125,19 @@ contract CrossChainManager is CCIPReceiver, Ownable {
             (address, address, uint256)
         );
 
-        // Handle received tokens
+        // Handle received USDC
         if (message.destTokenAmounts.length > 0) {
-            Client.EVMTokenAmount memory tokenAmount = message.destTokenAmounts[
-                0
-            ];
+            Client.EVMTokenAmount memory tokenAmount = message.destTokenAmounts[0];
+            
+            require(tokenAmount.token == address(usdcToken), "Only USDC expected");
 
-            if (tokenAmount.token == address(0)) {
-                // Native AVAX received - forward to pool manager
-                IPoolManager(poolManager).handleDeposit{
-                    value: tokenAmount.amount
-                }(user, address(0), tokenAmount.amount);
-            } else {
-                // ERC20 token received - approve and forward to pool manager
-                IERC20(tokenAmount.token).approve(
-                    poolManager,
-                    tokenAmount.amount
-                );
-                IPoolManager(poolManager).handleDeposit(
-                    user,
-                    tokenAmount.token,
-                    tokenAmount.amount
-                );
-            }
+            // Approve and forward USDC to pool manager
+            IERC20(tokenAmount.token).approve(poolManager, tokenAmount.amount);
+            IPoolManager(poolManager).handleDeposit(
+                user,
+                tokenAmount.token,
+                tokenAmount.amount
+            );
 
             emit TokensReceived(user, tokenAmount.token, tokenAmount.amount);
         }
@@ -187,20 +152,25 @@ contract CrossChainManager is CCIPReceiver, Ownable {
     }
 
     /**
-     * @dev Emergency native token withdrawal
+     * @dev Fund contract with LINK for CCIP fees
      */
-    function withdrawNative(uint256 amount) external onlyOwner {
-        payable(msg.sender).transfer(amount);
+    function fundWithLink(uint256 amount) external onlyOwner {
+        linkToken.transferFrom(msg.sender, address(this), amount);
     }
 
     /**
-     * @dev Emergency ERC20 token withdrawal
+     * @dev Emergency USDC withdrawal
      */
     function withdrawToken(address token, uint256 amount) external onlyOwner {
         IERC20(token).transfer(msg.sender, amount);
     }
 
-    receive() external payable {}
+    /**
+     * @dev Get LINK balance for fees
+     */
+    function getLinkBalance() external view returns (uint256) {
+        return linkToken.balanceOf(address(this));
+    }
 }
 
 interface IPoolManager {
@@ -208,9 +178,5 @@ interface IPoolManager {
         address user,
         address token,
         uint256 amount
-    ) external payable;
-}
-
-interface IWETH {
-    function deposit() external payable;
+    ) external;
 }
