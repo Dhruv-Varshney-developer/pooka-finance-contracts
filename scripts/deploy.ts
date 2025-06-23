@@ -85,6 +85,27 @@ async function main() {
   const poolManagerBalance = await usdcContract.read.balanceOf([poolManager.address]);
   console.log(`📊 PoolManager USDC balance: ${poolManagerBalance} (${Number(poolManagerBalance) / 1e6} USDC)`);
 
+  // Step 11: Fund Automation Contracts with LINK
+  console.log("\n11. Funding Automation Contracts with LINK...");
+  const linkContract = await hre.viem.getContractAt("IERC20", LINK_TOKEN_ADDRESS);
+  
+  // Fund each automation contract with 5 LINK (5 * 10^18)
+  const linkFundingAmount = BigInt("5000000000000000000"); // 5 LINK (18 decimals)
+  
+  console.log("  Funding TimeLiquidationAutomation...");
+  await linkContract.write.transfer([timeAutomation.address, linkFundingAmount]);
+  
+  console.log("  Funding LogLiquidationAutomation...");
+  await linkContract.write.transfer([logAutomation.address, linkFundingAmount]);
+  
+  console.log(`✅ Funded each automation contract with 5 LINK`);
+
+  // Verify automation contract balances
+  const timeAutomationBalance = await linkContract.read.balanceOf([timeAutomation.address]);
+  const logAutomationBalance = await linkContract.read.balanceOf([logAutomation.address]);
+  console.log(`📊 TimeLiquidationAutomation LINK balance: ${Number(timeAutomationBalance) / 1e18} LINK`);
+  console.log(`📊 LogLiquidationAutomation LINK balance: ${Number(logAutomationBalance) / 1e18} LINK`);
+
   // Summary
   console.log("\n📋 DEPLOYMENT SUMMARY:");
   console.log(`PriceOracle: ${priceOracle.address}`);
@@ -110,8 +131,8 @@ async function main() {
   console.log("\n🎯 NEXT STEPS:");
   console.log("1. Set up Chainlink price feeds in PriceOracle");
   console.log("2. Register automation contracts with Chainlink Automation");
-  console.log("3. Fund automation contracts with LINK tokens");
-  console.log("4. PoolManager is now funded and ready for deposits!");
+  console.log("3. PoolManager is now funded and ready for deposits!");
+  console.log("4. Automation contracts are funded with LINK and ready to register!");
 }
 
 main().catch((error) => {
