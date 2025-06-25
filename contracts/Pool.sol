@@ -5,19 +5,23 @@ import "contracts/PriceOracle.sol";
 import "./Perps.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {CCIPReceiver} from "@chainlink/contracts-ccip/contracts/applications/CCIPReceiver.sol";
+import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
 
 /**
  * @title PoolManager
  * @dev Converts tokens to USDC and deposits to Perps platform
  * Two deposit paths:
- * 1. Cross-chain: CrossChainManager → handleDeposit()
- * 2. Direct: AVAX users → depositDirect()
+ * 1. Cross-chain: CrossChainManager → _ccipReceive() → _processDeposit()
+ * 2. Direct: AVAX users → depositDirect() → _processDeposit()
  * Deployed only on AVAX Fuji
  */
-contract PoolManager is Ownable {
+contract PoolManager is CCIPReceiver, Ownable {
     PriceOracle public priceOracle;
     Perps public perpsContract;
-    address public crossChainManager;
+
+    address public constant FUJI_CCIP_ROUTER =
+        0xF694E193200268f9a4868e4Aa017A0118C9a8177; // CCIP Router address for AVAX Fuji
 
     // Supported tokens on AVAX
     IERC20 public usdcToken; // 6 decimals
@@ -25,11 +29,6 @@ contract PoolManager is Ownable {
 
     // Track deposited amounts per user (in original tokens for accounting)
     mapping(address => mapping(address => uint256)) public userDeposits;
-
-    modifier onlyCrossChainManager() {
-        require(msg.sender == crossChainManager, "Only CrossChainManager");
-        _;
-    }
 
     event TokensConverted(
         address indexed user,
@@ -43,29 +42,13 @@ contract PoolManager is Ownable {
     constructor(
         address _priceOracle,
         address _perpsContract,
-        address _crossChainManager,
         address _usdcToken,
         address _linkToken
-    ) Ownable() {
+    ) CCIPReceiver(FUJI_CCIP_ROUTER) Ownable() {
         priceOracle = PriceOracle(_priceOracle);
         perpsContract = Perps(_perpsContract);
-        crossChainManager = _crossChainManager;
         usdcToken = IERC20(_usdcToken);
         linkToken = IERC20(_linkToken);
-    }
-
-    /**
-     * @dev Handle token deposits from CrossChainManager (cross-chain deposits)
-     * @param user Original user who deposited on source chain
-     * @param token Token address (address(0) for native AVAX)
-     * @param amount Token amount
-     */
-    function handleDeposit(
-        address user,
-        address token,
-        uint256 amount
-    ) external payable onlyCrossChainManager {
-        _processDeposit(user, token, amount);
     }
 
     /**
@@ -75,6 +58,41 @@ contract PoolManager is Ownable {
      */
     function depositDirect(address token, uint256 amount) external payable {
         _processDeposit(msg.sender, token, amount);
+    }
+
+    /**
+     * @dev CCIP message receiver - handles cross-chain USDC deposits
+     */
+    function _ccipReceive(Client.Any2EVMMessage memory message)
+        internal
+        override
+    {
+        // Decode user info
+        (address user, address originalToken, uint256 amount) = abi.decode(
+            message.data,
+            (address, address, uint256)
+        );
+
+        // Handle received USDC tokens
+        if (message.destTokenAmounts.length > 0) {
+            Client.EVMTokenAmount memory tokenAmount = message.destTokenAmounts[
+                0
+            ];
+            require(
+                tokenAmount.token == address(usdcToken),
+                "Only USDC expected"
+            );
+
+            // Call _processDeposit directly (bypass handleDeposit)
+            _processDeposit(user, tokenAmount.token, tokenAmount.amount);
+
+            emit TokensConverted(
+                user,
+                originalToken,
+                amount,
+                tokenAmount.amount
+            );
+        }
     }
 
     /**
@@ -98,19 +116,19 @@ contract PoolManager is Ownable {
             usdcAmount = _convertAvaxToUsdc(amount);
             userDeposits[user][token] += amount;
         } else if (token == address(usdcToken)) {
-            // ONLY cross-chain USDC should reach here
-            // Direct AVAX users go to Perps.sol directly
+            // ONLY cross-chain CCIP USDC should reach here
+            // Tokens already in contract from CCIP transfer
             usdcAmount = amount;
             userDeposits[user][token] += amount;
         } else if (token == address(linkToken)) {
             // LINK token - convert to USDC
-            if (msg.sender != crossChainManager) {
-                // Direct deposit - transfer from user
-                linkToken.transferFrom(msg.sender, address(this), amount);
-            }
+
+            // Direct deposit - transfer from user
+            linkToken.transferFrom(msg.sender, address(this), amount);
+
             usdcAmount = _convertLinkToUsdc(amount);
             userDeposits[user][token] += amount;
-        }  else {
+        } else {
             revert("Unsupported token");
         }
 
@@ -164,7 +182,6 @@ contract PoolManager is Ownable {
         return usdValue / 1e2;
     }
 
-    
     /**
      * @dev Deposit USDC to Perps contract on behalf of user
      */
@@ -201,7 +218,7 @@ contract PoolManager is Ownable {
             return amount;
         } else if (token == address(linkToken)) {
             return _convertLinkToUsdc(amount);
-        } 
+        }
         return 0;
     }
 
@@ -221,8 +238,7 @@ contract PoolManager is Ownable {
             tokenName = "USDC";
         } else if (token == address(linkToken)) {
             tokenName = "LINK";
-        } 
-        else {
+        } else {
             tokenName = "UNSUPPORTED";
         }
     }
@@ -233,7 +249,7 @@ contract PoolManager is Ownable {
     function getTokenPrices()
         external
         view
-        returns (uint256 avaxPrice, uint256 linkPrice)  
+        returns (uint256 avaxPrice, uint256 linkPrice)
     {
         (avaxPrice, ) = priceOracle.getPrice("AVAX/USD");
         (linkPrice, ) = priceOracle.getPrice("LINK/USD");
@@ -242,15 +258,12 @@ contract PoolManager is Ownable {
     /**
      * @dev Emergency function to update contracts
      */
-    function updateContracts(
-        address _priceOracle,
-        address _perpsContract,
-        address _crossChainManager
-    ) external onlyOwner {
+    function updateContracts(address _priceOracle, address _perpsContract)
+        external
+        onlyOwner
+    {
         if (_priceOracle != address(0)) priceOracle = PriceOracle(_priceOracle);
         if (_perpsContract != address(0)) perpsContract = Perps(_perpsContract);
-        if (_crossChainManager != address(0))
-            crossChainManager = _crossChainManager;
     }
 
     receive() external payable {}
