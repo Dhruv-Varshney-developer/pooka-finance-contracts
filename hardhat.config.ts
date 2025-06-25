@@ -19,6 +19,9 @@ const config: HardhatUserConfig = {
         process.env.AVAX_RPC_URL ||
         "https://api.avax-test.network/ext/bc/C/rpc",
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      gasPrice: 50000000000, 
+      gas: 15000000,
+      timeout: 60000,
     },
     //  hardhat: {
     //    forking: {

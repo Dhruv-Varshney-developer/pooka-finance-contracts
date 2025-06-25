@@ -13,15 +13,26 @@ async function main(): Promise<void> {
   const SEPOLIA_USDC_TOKEN: string =
     "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
-  const SEPOLIA_CHAIN_SELECTOR: bigint = BigInt("16015286601757825753");
+  // UPDATED: PoolManager address from AVAX deployment (FILL THIS IN!)
+  const AVAX_POOL_MANAGER_ADDRESS: string =
+    "YOUR_AVAX_POOL_MANAGER_ADDRESS_HERE";
 
-  // Deploy CrossChainManager on Sepolia
+  // Verify PoolManager address is set
+  if (AVAX_POOL_MANAGER_ADDRESS === "YOUR_AVAX_POOL_MANAGER_ADDRESS_HERE") {
+    console.error("❌ Please set AVAX_POOL_MANAGER_ADDRESS first!");
+    console.log("1. Deploy contracts on AVAX Fuji first");
+    console.log("2. Copy the PoolManager address from AVAX deployment");
+    console.log("3. Update AVAX_POOL_MANAGER_ADDRESS in this script");
+    process.exit(1);
+  }
+
+  // Deploy CrossChainManager on Sepolia (UPDATED constructor)
   console.log("Deploying CrossChainManager on Sepolia...");
   const crossChainManager = await hre.viem.deployContract("CrossChainManager", [
     SEPOLIA_CCIP_ROUTER,
     SEPOLIA_LINK_TOKEN,
     SEPOLIA_USDC_TOKEN,
-    SEPOLIA_CHAIN_SELECTOR,
+    AVAX_POOL_MANAGER_ADDRESS, // UPDATED: Now takes PoolManager address
   ]);
 
   console.log(`✅ CrossChainManager (Sepolia): ${crossChainManager.address}`);
@@ -52,16 +63,19 @@ async function main(): Promise<void> {
 
   console.log("\n📋 SEPOLIA DEPLOYMENT SUMMARY:");
   console.log(`CrossChainManager: ${crossChainManager.address}`);
+  console.log(`Target PoolManager (AVAX): ${AVAX_POOL_MANAGER_ADDRESS}`);
 
   console.log("\n🔍 VERIFICATION COMMAND:");
   console.log(
-    `npx hardhat verify --network sepolia ${crossChainManager.address} "${SEPOLIA_CCIP_ROUTER}" "${SEPOLIA_LINK_TOKEN}" "${SEPOLIA_USDC_TOKEN}" "${SEPOLIA_CHAIN_SELECTOR}"`
+    `npx hardhat verify --network sepolia ${crossChainManager.address} "${SEPOLIA_CCIP_ROUTER}" "${SEPOLIA_LINK_TOKEN}" "${SEPOLIA_USDC_TOKEN}" "${AVAX_POOL_MANAGER_ADDRESS}"`
   );
 
   console.log("\n🎯 NEXT STEPS:");
-  console.log("1. Deploy contracts on AVAX Fuji");
-  console.log("2. Update AVAX CrossChainManager with PoolManager address");
-  console.log("3. Test cross-chain deposits!");
+  console.log("1. Verify contracts on both chains");
+  console.log("2. Test cross-chain deposits!");
+  console.log(
+    `3. Users can now deposit USDC on Sepolia using: ${crossChainManager.address}`
+  );
 }
 
 main().catch((error: Error) => {
