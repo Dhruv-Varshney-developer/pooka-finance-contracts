@@ -11,7 +11,6 @@ async function main(): Promise<void> {
   const LINK_TOKEN_ADDRESS: string =
     "0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846"; // Fuji LINK
 
-
   const FUJI_CCIP_ROUTER: string = "0xF694E193200268f9a4868e4Aa017A0118C9a8177";
   const FUJI_CHAIN_SELECTOR: bigint = BigInt("14767482510784806043");
 
@@ -42,51 +41,41 @@ async function main(): Promise<void> {
   ]);
   console.log(`✅ Perps: ${perps.address}`);
 
-  // Step 5: Deploy PoolManager
+  // Step 5: Deploy PoolManager (UPDATED - no crossChainManager parameter)
   console.log("\n5. Deploying PoolManager...");
   const poolManager = await hre.viem.deployContract("PoolManager", [
     priceOracle.address,
     perps.address,
-    "0x0000000000000000000000000000000000000000", // Will be set after CrossChainManager deployment
     USDC_TOKEN_ADDRESS,
     LINK_TOKEN_ADDRESS,
   ]);
   console.log(`✅ PoolManager: ${poolManager.address}`);
 
-  // Step 6: Deploy CrossChainManager
-  console.log("\n6. Deploying CrossChainManager...");
-  const crossChainManager = await hre.viem.deployContract("CrossChainManager", [
-    FUJI_CCIP_ROUTER,
-    LINK_TOKEN_ADDRESS,
-    USDC_TOKEN_ADDRESS,
-    FUJI_CHAIN_SELECTOR,
-  ]);
-  console.log(`✅ CrossChainManager: ${crossChainManager.address}`);
+  // REMOVED: CrossChainManager deployment (only deployed on Sepolia)
 
-  // Step 7: Deploy Time-based Liquidation Automation
-  console.log("\n7. Deploying TimeLiquidationAutomation...");
+  // Step 6: Deploy Time-based Liquidation Automation
+  console.log("\n6. Deploying TimeLiquidationAutomation...");
   const timeAutomation = await hre.viem.deployContract(
     "TimeLiquidationAutomation",
     [perps.address]
   );
   console.log(`✅ TimeLiquidationAutomation: ${timeAutomation.address}`);
 
-  // Step 8: Deploy Log-based Liquidation Automation
-  console.log("\n8. Deploying LogLiquidationAutomation...");
+  // Step 7: Deploy Log-based Liquidation Automation
+  console.log("\n7. Deploying LogLiquidationAutomation...");
   const logAutomation = await hre.viem.deployContract(
     "LogLiquidationAutomation",
     [perps.address]
   );
   console.log(`✅ LogLiquidationAutomation: ${logAutomation.address}`);
 
-  // Step 9: Setup connections
-  console.log("\n9. Setting up contract connections...");
+  // Step 8: Setup connections (UPDATED - no crossChainManager)
+  console.log("\n8. Setting up contract connections...");
   await perps.write.setPoolManager([poolManager.address]);
-  await crossChainManager.write.setPoolManager([poolManager.address]);
   console.log("✅ Contract connections established");
 
-  // Step 10: Fund PoolManager with USDC
-  console.log("\n10. Funding PoolManager with USDC...");
+  // Step 9: Fund PoolManager with USDC
+  console.log("\n9. Funding PoolManager with USDC...");
   const [deployer] = await hre.viem.getWalletClients();
   const usdcContract = await hre.viem.getContractAt(
     "IERC20",
@@ -108,8 +97,8 @@ async function main(): Promise<void> {
     } USDC)`
   );
 
-  // Step 11: Fund Automation Contracts with LINK
-  console.log("\n11. Funding Automation Contracts with LINK...");
+  // Step 10: Fund Automation Contracts with LINK
+  console.log("\n10. Funding Automation Contracts with LINK...");
   const linkContract = await hre.viem.getContractAt(
     "IERC20",
     LINK_TOKEN_ADDRESS
@@ -129,24 +118,12 @@ async function main(): Promise<void> {
 
   console.log(`✅ Funded each automation contract with 5 LINK`);
 
-  // Step 12: Fund CrossChainManager with LINK for CCIP fees
-  console.log("\n12. Funding CrossChainManager with LINK...");
-  const ccipLinkFunding: bigint = BigInt("10000000000000000000"); // 10 LINK
-  await linkContract.write.transfer([
-    crossChainManager.address,
-    ccipLinkFunding,
-  ]);
-  console.log(`✅ Funded CrossChainManager with 10 LINK for CCIP fees`);
-
   // Verify automation contract balances
   const timeAutomationBalance = await linkContract.read.balanceOf([
     timeAutomation.address,
   ]);
   const logAutomationBalance = await linkContract.read.balanceOf([
     logAutomation.address,
-  ]);
-  const crossChainBalance = await linkContract.read.balanceOf([
-    crossChainManager.address,
   ]);
   console.log(
     `📊 TimeLiquidationAutomation LINK balance: ${
@@ -158,20 +135,14 @@ async function main(): Promise<void> {
       Number(logAutomationBalance) / 1e18
     } LINK`
   );
-  console.log(
-    `📊 CrossChainManager LINK balance: ${
-      Number(crossChainBalance) / 1e18
-    } LINK`
-  );
 
-  // Summary
+  // Summary (UPDATED - no CrossChainManager)
   console.log("\n📋 AVAX FUJI DEPLOYMENT SUMMARY:");
   console.log(`PriceOracle: ${priceOracle.address}`);
   console.log(`PerpsFeeManager: ${feeManager.address}`);
   console.log(`PerpsCalculations: ${calculations.address}`);
   console.log(`Perps: ${perps.address}`);
   console.log(`PoolManager: ${poolManager.address}`);
-  console.log(`CrossChainManager: ${crossChainManager.address}`);
   console.log(`TimeLiquidationAutomation: ${timeAutomation.address}`);
   console.log(`LogLiquidationAutomation: ${logAutomation.address}`);
 
@@ -190,10 +161,7 @@ async function main(): Promise<void> {
     `npx hardhat verify --network avax_testnet ${perps.address} "${priceOracle.address}" "${feeManager.address}" "${calculations.address}" "${USDC_TOKEN_ADDRESS}"`
   );
   console.log(
-    `npx hardhat verify --network avax_testnet ${poolManager.address} "${priceOracle.address}" "${perps.address}" "0x0000000000000000000000000000000000000000" "${USDC_TOKEN_ADDRESS}" "${LINK_TOKEN_ADDRESS}"`
-  );
-  console.log(
-    `npx hardhat verify --network avax_testnet ${crossChainManager.address} "${FUJI_CCIP_ROUTER}" "${LINK_TOKEN_ADDRESS}" "${USDC_TOKEN_ADDRESS}" "${FUJI_CHAIN_SELECTOR}"`
+    `npx hardhat verify --network avax_testnet ${poolManager.address} "${priceOracle.address}" "${perps.address}" "${USDC_TOKEN_ADDRESS}" "${LINK_TOKEN_ADDRESS}"`
   );
   console.log(
     `npx hardhat verify --network avax_testnet ${timeAutomation.address} "${perps.address}"`
@@ -204,7 +172,11 @@ async function main(): Promise<void> {
 
   console.log("\n🎯 NEXT STEPS:");
   console.log("1. Register automation contracts with Chainlink Automation");
-  console.log("2. Deploy CrossChainManager on Sepolia");
+  console.log(
+    "2. Deploy CrossChainManager on Sepolia with this PoolManager address:"
+  );
+  console.log(`   ${poolManager.address}`);
+  console.log("3. Test cross-chain deposits!");
 }
 
 main().catch((error: Error) => {
