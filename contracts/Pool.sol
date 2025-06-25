@@ -63,10 +63,9 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev CCIP message receiver - handles cross-chain USDC deposits
      */
-    function _ccipReceive(Client.Any2EVMMessage memory message)
-        internal
-        override
-    {
+    function _ccipReceive(
+        Client.Any2EVMMessage memory message
+    ) internal override {
         // Decode user info
         (address user, address originalToken, uint256 amount) = abi.decode(
             message.data,
@@ -82,9 +81,6 @@ contract PoolManager is CCIPReceiver, Ownable {
                 tokenAmount.token == address(usdcToken),
                 "Only USDC expected"
             );
-
-            // Call _processDeposit directly (bypass handleDeposit)
-            _processDeposit(user, tokenAmount.token, tokenAmount.amount);
 
             emit TokensConverted(
                 user,
@@ -147,11 +143,9 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Convert native AVAX to USDC using price oracle
      */
-    function _convertAvaxToUsdc(uint256 avaxAmount)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertAvaxToUsdc(
+        uint256 avaxAmount
+    ) internal view returns (uint256) {
         // Get AVAX price from oracle (8 decimals)
         (uint256 avaxPriceUSD, ) = priceOracle.getPrice("AVAX/USD");
 
@@ -167,11 +161,9 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Convert LINK tokens to USDC using price oracle
      */
-    function _convertLinkToUsdc(uint256 linkAmount)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertLinkToUsdc(
+        uint256 linkAmount
+    ) internal view returns (uint256) {
         // Get LINK price from oracle (8 decimals)
         (uint256 linkPriceUSD, ) = priceOracle.getPrice("LINK/USD");
 
@@ -196,22 +188,20 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Get user's deposit history
      */
-    function getUserDeposits(address user, address token)
-        external
-        view
-        returns (uint256)
-    {
+    function getUserDeposits(
+        address user,
+        address token
+    ) external view returns (uint256) {
         return userDeposits[user][token];
     }
 
     /**
      * @dev Preview conversion rates for any token
      */
-    function previewConversion(address token, uint256 amount)
-        external
-        view
-        returns (uint256 usdcAmount)
-    {
+    function previewConversion(
+        address token,
+        uint256 amount
+    ) external view returns (uint256 usdcAmount) {
         if (token == address(0)) {
             return _convertAvaxToUsdc(amount);
         } else if (token == address(usdcToken)) {
@@ -225,11 +215,10 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Preview conversion for direct deposits (convenience function)
      */
-    function previewDirectDeposit(address token, uint256 amount)
-        external
-        view
-        returns (uint256 usdcAmount, string memory tokenName)
-    {
+    function previewDirectDeposit(
+        address token,
+        uint256 amount
+    ) external view returns (uint256 usdcAmount, string memory tokenName) {
         usdcAmount = this.previewConversion(token, amount);
 
         if (token == address(0)) {
@@ -258,10 +247,10 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Emergency function to update contracts
      */
-    function updateContracts(address _priceOracle, address _perpsContract)
-        external
-        onlyOwner
-    {
+    function updateContracts(
+        address _priceOracle,
+        address _perpsContract
+    ) external onlyOwner {
         if (_priceOracle != address(0)) priceOracle = PriceOracle(_priceOracle);
         if (_perpsContract != address(0)) perpsContract = Perps(_perpsContract);
     }
@@ -271,10 +260,10 @@ contract PoolManager is CCIPReceiver, Ownable {
     /**
      * @dev Owner withdraw ERC20 tokens only
      */
-    function ownerWithdrawToken(address token, uint256 amount)
-        external
-        onlyOwner
-    {
+    function ownerWithdrawToken(
+        address token,
+        uint256 amount
+    ) external onlyOwner {
         require(token != address(0), "Use withdrawAVAX for native AVAX");
         IERC20 tokenContract = IERC20(token);
         require(
