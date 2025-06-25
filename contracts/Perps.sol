@@ -89,6 +89,7 @@ contract Perps is PerpsEvents {
 
         // Insert the deposit struct into the mapping
         deposits[msg.sender][depositIndex] = userDeposit;
+
         // Add to user's balance (USDC has 6 decimals)
         balances[msg.sender] += usdcAmount;
 
@@ -107,6 +108,17 @@ contract Perps is PerpsEvents {
 
         // Transfer USDC from PoolManager to Perps
         usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+
+        PerpsStructs.Deposit memory userDeposit = PerpsStructs.Deposit(
+            block.timestamp,
+            usdcAmount
+        );
+        
+        // Increase no. of deposits by user
+        uint256 depositIndex = ++userDepositCount[user];
+
+        // Insert the deposit struct into the mapping
+        deposits[user][depositIndex] = userDeposit;
         
         // Add to user's balance (USDC has 6 decimals)
         balances[user] += usdcAmount;
