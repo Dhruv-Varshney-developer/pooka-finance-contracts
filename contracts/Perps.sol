@@ -20,7 +20,9 @@ contract Perps is PerpsEvents {
     PerpsCalculations public calculator;
 
     mapping(address => mapping(string => PerpsStructs.Position)) public positions;
+    mapping(address => mapping(uint256 => PerpsStructs.Deposit)) public deposits;
     mapping(string => PerpsStructs.Market) public markets;
+    mapping(address => uint256) public userDepositCount;
     mapping(address => uint256) public balances; // USDC balances (6 decimals)
 
     string[] public marketSymbols;
@@ -74,8 +76,19 @@ contract Perps is PerpsEvents {
         require(balances[msg.sender] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
 
         // Transfer USDC from user
-        usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+        bool success = usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+        require(success, "Transfer failed");
+
+        PerpsStructs.Deposit memory userDeposit = PerpsStructs.Deposit(
+            block.timestamp,
+            usdcAmount
+        );
         
+        // Increase no. of deposits by user
+        uint256 depositIndex = ++userDepositCount[msg.sender];
+
+        // Insert the deposit struct into the mapping
+        deposits[msg.sender][depositIndex] = userDeposit;
         // Add to user's balance (USDC has 6 decimals)
         balances[msg.sender] += usdcAmount;
 

@@ -33,6 +33,14 @@ library PerpsStructs {
     }
 
     /**
+     * @dev Deposit struct to keep track of deposits
+     */
+    struct Deposit {
+        uint256 depositTime;
+        uint256 depositAmount;
+    }
+
+    /**
      * @dev Comprehensive position information for frontend
      * @notice All monetary values maintain their decimal precision:
      * - USDC: 6 decimals

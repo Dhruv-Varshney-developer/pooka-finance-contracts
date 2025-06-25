@@ -3,7 +3,7 @@
   "scripts": {
     "test": "hardhat test",
     "test:price-oracle": "hardhat test test/PriceOracle.test.ts",
-    "test:fee-manager": "hardhat test test/PerpsFeeManager.test.ts", 
+    "test:fee-manager": "hardhat test test/PerpsFeeManager.test.ts",
     "test:calculations": "hardhat test test/PerpsCalculations.test.ts",
     "test:perps": "hardhat test test/Perps.test.ts",
     "test:automation": "hardhat test test/Automation.test.ts",
