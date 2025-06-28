@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   const FUJI_CHAIN_SELECTOR: bigint = BigInt("14767482510784806043");
 
   const FUJI_VRF_COORDINATOR: string =
-    "0x2eD832Ba664535e5886b75D64C46EB9a228C2610";
+    "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE";
   const FUJI_VRF_KEYHASH: `0x${string}` =
     "0xc799bd1e3bd4d1a41cd4968997a4e03dfd2a3c7c04b695881138580163f42887";
   const VRF_SUBSCRIPTION_ID: bigint = BigInt(
