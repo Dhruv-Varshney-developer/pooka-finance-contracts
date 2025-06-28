@@ -34,7 +34,7 @@
     "viem": "^2.7.6"
   },
   "dependencies": {
-    "@chainlink/contracts": "^1.4.0",
+    "@chainlink/contracts": "1.4.0",
     "@chainlink/contracts-ccip": "^1.6.0"
   }
 }

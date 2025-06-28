@@ -1,39 +1,37 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.4;
 
-import "@chainlink/contracts/src/v0.8/vrf/VRFConsumerBaseV2.sol";
-import "@chainlink/contracts/src/v0.8/vrf/interfaces/VRFCoordinatorV2Interface.sol";
+import {VRFConsumerBaseV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
+import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 
 /**
  * @title VRFRandomizer
- * @dev VRF contract for generating randomness
+ * @dev VRF V2Plus contract following official Chainlink pattern
  */
-contract VRFRandomizer is VRFConsumerBaseV2 {
-    VRFCoordinatorV2Interface private vrfCoordinator;
-    uint64 private subscriptionId;
-    bytes32 private keyHash;
-    uint32 private callbackGasLimit = 100000;
-    uint16 private requestConfirmations = 3;
+contract VRFRandomizer is VRFConsumerBaseV2Plus {
+    uint256 public s_subscriptionId;
+    bytes32 public s_keyHash;
+    uint32 public callbackGasLimit = 100000;
+    uint16 public requestConfirmations = 3;
+    uint32 public numWords = 1;
 
-    // Current randomness
     uint256 public currentRandomness;
     uint256 public lastUpdateTime;
 
-    // Simple access control
-    address public owner;
+    address public contractOwner;
     mapping(address => bool) public authorizedCallers;
 
     event RandomnessUpdated(uint256 randomness, uint256 timestamp);
     event RandomnessRequested(uint256 requestId);
 
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner");
+    modifier onlyContractOwner() {
+        require(msg.sender == contractOwner, "Only owner");
         _;
     }
 
     modifier onlyAuthorized() {
         require(
-            authorizedCallers[msg.sender] || msg.sender == owner,
+            authorizedCallers[msg.sender] || msg.sender == contractOwner,
             "Not authorized"
         );
         _;
@@ -41,15 +39,13 @@ contract VRFRandomizer is VRFConsumerBaseV2 {
 
     constructor(
         address _vrfCoordinator,
-        uint64 _subscriptionId,
+        uint256 _subscriptionId,
         bytes32 _keyHash
-    ) VRFConsumerBaseV2(_vrfCoordinator) {
-        owner = msg.sender;
-        vrfCoordinator = VRFCoordinatorV2Interface(_vrfCoordinator);
-        subscriptionId = _subscriptionId;
-        keyHash = _keyHash;
+    ) VRFConsumerBaseV2Plus(_vrfCoordinator) {
+        contractOwner = msg.sender;
+        s_subscriptionId = _subscriptionId;
+        s_keyHash = _keyHash;
 
-        // Initialize with block-based randomness
         currentRandomness = uint256(
             keccak256(
                 abi.encodePacked(
@@ -62,48 +58,38 @@ contract VRFRandomizer is VRFConsumerBaseV2 {
         lastUpdateTime = block.timestamp;
     }
 
-    /**
-     * @dev Request fresh randomness from VRF
-     */
     function requestRandomness()
         external
         onlyAuthorized
         returns (uint256 requestId)
     {
-        requestId = vrfCoordinator.requestRandomWords(
-            keyHash,
-            subscriptionId,
-            requestConfirmations,
-            callbackGasLimit,
-            1 // numWords
+        // Use s_vrfCoordinator from base contract - EXACTLY like official example
+        requestId = s_vrfCoordinator.requestRandomWords(
+            VRFV2PlusClient.RandomWordsRequest({
+                keyHash: s_keyHash,
+                subId: s_subscriptionId,
+                requestConfirmations: requestConfirmations,
+                callbackGasLimit: callbackGasLimit,
+                numWords: numWords,
+                extraArgs: VRFV2PlusClient._argsToBytes(
+                    VRFV2PlusClient.ExtraArgsV1({nativePayment: false})
+                )
+            })
         );
 
         emit RandomnessRequested(requestId);
         return requestId;
     }
 
-    /**
-     * @dev VRF callback - receives randomness
-     */
     function fulfillRandomWords(
-        uint256 /* requestId */,
-        uint256[] memory randomWords
+        uint256,
+        uint256[] calldata randomWords
     ) internal override {
         currentRandomness = randomWords[0];
         lastUpdateTime = block.timestamp;
         emit RandomnessUpdated(currentRandomness, block.timestamp);
     }
 
-    /**
-     * @dev Get current randomness (public view - no auth needed)
-     */
-    function getRandomness() external view returns (uint256) {
-        return currentRandomness;
-    }
-
-    /**
-     * @dev Shuffle array using current randomness (public view - no auth needed)
-     */
     function shuffleAddresses(
         address[] memory array
     ) external view returns (address[] memory) {
@@ -111,30 +97,19 @@ contract VRFRandomizer is VRFConsumerBaseV2 {
 
         for (uint256 i = array.length - 1; i > 0; i--) {
             uint256 j = randomness % (i + 1);
-
-            // Swap array[i] and array[j]
-            address temp = array[i];
-            array[i] = array[j];
-            array[j] = temp;
-
-            // Update randomness for next iteration
+            (array[i], array[j]) = (array[j], array[i]);
             randomness = uint256(keccak256(abi.encodePacked(randomness, i)));
         }
-
         return array;
     }
 
-    /**
-     * @dev Add authorized caller
-     */
-    function addAuthorizedCaller(address caller) external onlyOwner {
+    function addAuthorizedCaller(address caller) external onlyContractOwner {
         authorizedCallers[caller] = true;
     }
 
-    /**
-     * @dev Update subscription ID (in case you need to switch)
-     */
-    function updateSubscriptionId(uint64 _subscriptionId) external onlyOwner {
-        subscriptionId = _subscriptionId;
+    function updateSubscriptionId(
+        uint256 _subscriptionId
+    ) external onlyContractOwner {
+        s_subscriptionId = _subscriptionId;
     }
 }

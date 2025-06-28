@@ -14,8 +14,8 @@ async function main(): Promise<void> {
 
   const FUJI_VRF_COORDINATOR: string =
     "0x2eD832Ba664535e5886b75D64C46EB9a228C2610";
-  const FUJI_VRF_KEYHASH: string =
-    "0x354d2f95da55398f44b7cff77da56283d9c6c829a4bdf1bbcaf2ad6a4d081f61";
+  const FUJI_VRF_KEYHASH: `0x${string}` =
+    "0xc799bd1e3bd4d1a41cd4968997a4e03dfd2a3c7c04b695881138580163f42887";
   const VRF_SUBSCRIPTION_ID: bigint = BigInt(
     "78089242584694303630769952839292814618695167473477384782355522507914412967813"
   );
@@ -82,8 +82,15 @@ async function main(): Promise<void> {
   console.log(`✅ LogLiquidationAutomation: ${logAutomation.address}`);
 
   console.log("\n10. Setting up contract connections...");
+
+  // Set PoolManager in Perps contract
   await perps.write.setPoolManager([poolManager.address]);
+
+  // Authorize VRFAutomation to call VRFRandomizer
   await vrfRandomizer.write.addAuthorizedCaller([vrfAutomation.address]);
+
+  await vrfRandomizer.write.addAuthorizedCaller([perps.address]);
+
   console.log("✅ Contract connections established");
 
   console.log("\n11. Funding PoolManager with USDC...");
@@ -93,7 +100,7 @@ async function main(): Promise<void> {
     USDC_TOKEN_ADDRESS
   );
 
-  const fundingAmount: bigint = BigInt("10000000");
+  const fundingAmount: bigint = BigInt("10000000"); // 10 USDC (6 decimals)
   await usdcContract.write.transfer([poolManager.address, fundingAmount]);
   console.log(`✅ Funded PoolManager with 10 USDC`);
 
@@ -112,7 +119,7 @@ async function main(): Promise<void> {
     LINK_TOKEN_ADDRESS
   );
 
-  const linkFundingAmount: bigint = BigInt("5000000000000000000");
+  const linkFundingAmount: bigint = BigInt("5000000000000000000"); // 5 LINK
 
   console.log("  Funding TimeLiquidationAutomation...");
   await linkContract.write.transfer([
@@ -192,15 +199,20 @@ async function main(): Promise<void> {
   );
 
   console.log("\n🎯 NEXT STEPS:");
-  console.log("1. Create Chainlink VRF subscription and fund with LINK");
-  console.log("2. Add VRFRandomizer as consumer to VRF subscription");
-  console.log("3. Register all automation contracts with Chainlink Automation");
-  console.log("4. Update VRF_SUBSCRIPTION_ID in script if needed");
+  console.log("1. ✅ VRF subscription ID is already set in this script");
+  console.log("2. Add VRFRandomizer as consumer to the VRF subscription:");
+  console.log(`   VRFRandomizer address: ${vrfRandomizer.address}`);
   console.log(
-    "5. Deploy CrossChainManager on Sepolia with this PoolManager address:"
+    "3. Register all automation contracts with Chainlink Automation:"
+  );
+  console.log(`   - TimeLiquidationAutomation: ${timeAutomation.address}`);
+  console.log(`   - LogLiquidationAutomation: ${logAutomation.address}`);
+  console.log(`   - VRFAutomation: ${vrfAutomation.address}`);
+  console.log(
+    "4. Deploy CrossChainManager on Sepolia with this PoolManager address:"
   );
   console.log(`   ${poolManager.address}`);
-  console.log("6. Test randomized liquidations!");
+  console.log("5. Test protocol functionality!");
 }
 
 main().catch((error: Error) => {
