@@ -13,7 +13,6 @@ async function main(): Promise<void> {
   const SEPOLIA_USDC_TOKEN: string =
     "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238";
 
-  // UPDATED: PoolManager address from AVAX deployment (FILL THIS IN!)
   const AVAX_POOL_MANAGER_ADDRESS: string =
     "YOUR_AVAX_POOL_MANAGER_ADDRESS_HERE";
 
@@ -26,18 +25,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Deploy CrossChainManager on Sepolia (UPDATED constructor)
   console.log("Deploying CrossChainManager on Sepolia...");
   const crossChainManager = await hre.viem.deployContract("CrossChainManager", [
     SEPOLIA_CCIP_ROUTER,
     SEPOLIA_LINK_TOKEN,
     SEPOLIA_USDC_TOKEN,
-    AVAX_POOL_MANAGER_ADDRESS, // UPDATED: Now takes PoolManager address
+    AVAX_POOL_MANAGER_ADDRESS,
   ]);
 
   console.log(`✅ CrossChainManager (Sepolia): ${crossChainManager.address}`);
 
-  // Fund CrossChainManager with LINK for CCIP fees
   console.log("\nFunding CrossChainManager with LINK for fees...");
   const [deployer] = await hre.viem.getWalletClients();
   const linkContract = await hre.viem.getContractAt(
