@@ -19,8 +19,10 @@ contract Perps is PerpsEvents {
     PerpsFeeManager public feeManager;
     PerpsCalculations public calculator;
 
-    mapping(address => mapping(string => PerpsStructs.Position)) public positions;
-    mapping(address => mapping(uint256 => PerpsStructs.Deposit)) public deposits;
+    mapping(address => mapping(string => PerpsStructs.Position))
+        public positions;
+    mapping(address => mapping(uint256 => PerpsStructs.Deposit))
+        public deposits;
     mapping(string => PerpsStructs.Market) public markets;
     mapping(address => uint256) public userDepositCount;
     mapping(address => uint256) public balances; // USDC balances (6 decimals)
@@ -73,17 +75,24 @@ contract Perps is PerpsEvents {
      */
     function depositUSDC(uint256 usdcAmount) external {
         require(usdcAmount > 0, "Deposit amount must be > 0");
-        require(balances[msg.sender] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
+        require(
+            balances[msg.sender] + usdcAmount <= 100_000_000,
+            "Max $100 per user"
+        ); // 100 USDC (6 decimals)
 
         // Transfer USDC from user
-        bool success = usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
+        bool success = usdcToken.transferFrom(
+            msg.sender,
+            address(this),
+            usdcAmount
+        );
         require(success, "Transfer failed");
 
         PerpsStructs.Deposit memory userDeposit = PerpsStructs.Deposit(
             block.timestamp,
             usdcAmount
         );
-        
+
         // Increase no. of deposits by user
         uint256 depositIndex = ++userDepositCount[msg.sender];
 
@@ -101,10 +110,16 @@ contract Perps is PerpsEvents {
      * @param user User address to credit the deposit to
      * @param usdcAmount Amount of USDC to deposit (6 decimals)
      */
-    function depositUSDCForUser(address user, uint256 usdcAmount) external onlyPoolManager {
+    function depositUSDCForUser(address user, uint256 usdcAmount)
+        external
+        onlyPoolManager
+    {
         require(user != address(0), "Invalid user address");
         require(usdcAmount > 0, "Deposit amount must be > 0");
-        require(balances[user] + usdcAmount <= 100_000_000, "Max $100 per user"); // 100 USDC (6 decimals)
+        require(
+            balances[user] + usdcAmount <= 100_000_000,
+            "Max $100 per user"
+        ); // 100 USDC (6 decimals)
 
         // Transfer USDC from PoolManager to Perps
         usdcToken.transferFrom(msg.sender, address(this), usdcAmount);
@@ -113,13 +128,13 @@ contract Perps is PerpsEvents {
             block.timestamp,
             usdcAmount
         );
-        
+
         // Increase no. of deposits by user
         uint256 depositIndex = ++userDepositCount[user];
 
         // Insert the deposit struct into the mapping
         deposits[user][depositIndex] = userDeposit;
-        
+
         // Add to user's balance (USDC has 6 decimals)
         balances[user] += usdcAmount;
 
@@ -156,15 +171,10 @@ contract Perps is PerpsEvents {
         PerpsStructs.Market memory market = markets[symbol];
         require(market.isActive, "Market not active");
         require(collateralUSDC > 0, "Collateral must be > 0");
-        require(
-            leverage > 0 && leverage <= 3,
-            "Max leverage is 3x"
-        );
-        require(
-            !positions[msg.sender][symbol].isOpen,
-            "Position already exists"
-        );
-
+        require(leverage > 0 && leverage <= 3, "Max leverage is 3x");
+        if (positions[msg.sender][symbol].isOpen) {
+            _closeExistingPosition(msg.sender, symbol);
+        }
         // Calculate fees using fee manager
         uint256 openingFee = feeManager.calculateOpeningFee(collateralUSDC);
         uint256 totalRequired = collateralUSDC + openingFee;
@@ -176,7 +186,7 @@ contract Perps is PerpsEvents {
         // Calculate position size in USD (normalize to 6 decimals like USDC)
         // collateralUSDC (6 decimals) * leverage = position size in USD (6 decimals)
         uint256 positionSizeUSD = collateralUSDC * leverage;
-        
+
         // Ensure user doesn't exceed $100 total exposure
         require(
             _getUserTotalExposure(msg.sender) + positionSizeUSD <= 300_000_000,
@@ -221,6 +231,48 @@ contract Perps is PerpsEvents {
         );
     }
 
+    function _closeExistingPosition(address user, string memory symbol)
+        internal
+    {
+        PerpsStructs.Position storage position = positions[user][symbol];
+        (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
+
+        // Calculate settlement (same logic as closePosition)
+        uint256 holdingFees = feeManager.calculateHoldingFee(position);
+        int256 pnlUSDC = calculator.calculatePnL(position, currentPrice);
+        uint256 closingFee = feeManager.calculateClosingFee(
+            position.collateralUSDC
+        );
+
+        uint256 profitTax = 0;
+        if (pnlUSDC > 0) {
+            profitTax = (uint256(pnlUSDC) * 30) / 100;
+        }
+
+        // Settle to user balance
+        int256 finalUSDCAmount = int256(position.collateralUSDC) +
+            pnlUSDC -
+            int256(holdingFees) -
+            int256(closingFee) -
+            int256(profitTax);
+
+        // Update market totals
+        if (position.isLong) {
+            markets[symbol].totalLongSizeUSD -= position.sizeUSD;
+        } else {
+            markets[symbol].totalShortSizeUSD -= position.sizeUSD;
+        }
+
+        // Close position and add funds back to balance
+
+        position.isOpen = false;
+        position.lastFeeTime = block.timestamp;
+        if (finalUSDCAmount > 0) {
+            balances[user] += uint256(finalUSDCAmount);
+        }
+        emit PositionClosed(user, symbol, pnlUSDC, holdingFees + profitTax);
+    }
+
     /**
      * @dev Close position and settle in USDC
      */
@@ -233,8 +285,10 @@ contract Perps is PerpsEvents {
         // Calculate all fees and PnL in USDC
         uint256 holdingFees = feeManager.calculateHoldingFee(position);
         int256 pnlUSDC = calculator.calculatePnL(position, currentPrice);
-        uint256 closingFee = feeManager.calculateClosingFee(position.collateralUSDC);
-        
+        uint256 closingFee = feeManager.calculateClosingFee(
+            position.collateralUSDC
+        );
+
         // Apply 30% profit tax if position is profitable
         uint256 profitTax = 0;
         if (pnlUSDC > 0) {
@@ -242,11 +296,11 @@ contract Perps is PerpsEvents {
         }
 
         // Calculate final USDC amount
-        int256 finalUSDCAmount = int256(position.collateralUSDC) + 
-                                pnlUSDC - 
-                                int256(holdingFees) - 
-                                int256(closingFee) -
-                                int256(profitTax);
+        int256 finalUSDCAmount = int256(position.collateralUSDC) +
+            pnlUSDC -
+            int256(holdingFees) -
+            int256(closingFee) -
+            int256(profitTax);
 
         // Update market totals
         if (position.isLong) {
@@ -263,15 +317,20 @@ contract Perps is PerpsEvents {
             balances[msg.sender] += uint256(finalUSDCAmount);
         }
 
-        emit PositionClosed(msg.sender, symbol, pnlUSDC, holdingFees + profitTax);
+        emit PositionClosed(
+            msg.sender,
+            symbol,
+            pnlUSDC,
+            holdingFees + profitTax
+        );
     }
 
     /**
      * @dev Liquidate a single position if liquidatable
      */
-    function liquidatePosition(address user, string memory symbol) 
-        external 
-        returns (bool) 
+    function liquidatePosition(address user, string memory symbol)
+        external
+        returns (bool)
     {
         PerpsStructs.Position storage position = positions[user][symbol];
         require(position.isOpen, "No open position");
@@ -293,7 +352,7 @@ contract Perps is PerpsEvents {
         uint256 collateralLost = position.collateralUSDC;
         position.isOpen = false;
         position.lastFeeTime = block.timestamp;
-        
+
         emit PositionLiquidated(user, symbol, collateralLost, msg.sender);
         return true;
     }
@@ -303,39 +362,52 @@ contract Perps is PerpsEvents {
      */
     function liquidatePositions() external returns (uint256 liquidated) {
         liquidated = 0;
-        
+
         // Iterate through all users who ever had positions
         for (uint256 i = 0; i < allUsers.length; i++) {
             address user = allUsers[i];
-            
+
             // Check all markets for this user
             for (uint256 j = 0; j < marketSymbols.length; j++) {
                 string memory symbol = marketSymbols[j];
-                PerpsStructs.Position storage position = positions[user][symbol];
-                
+                PerpsStructs.Position storage position = positions[user][
+                    symbol
+                ];
+
                 if (!position.isOpen) continue;
-                
+
                 (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
-                
-                if (calculator.canLiquidate(position, markets[symbol], currentPrice)) {
+
+                if (
+                    calculator.canLiquidate(
+                        position,
+                        markets[symbol],
+                        currentPrice
+                    )
+                ) {
                     // Update market totals
                     if (position.isLong) {
                         markets[symbol].totalLongSizeUSD -= position.sizeUSD;
                     } else {
                         markets[symbol].totalShortSizeUSD -= position.sizeUSD;
                     }
-                    
+
                     // Close position
                     uint256 collateralLost = position.collateralUSDC;
                     position.isOpen = false;
                     position.lastFeeTime = block.timestamp;
-                    
-                    emit PositionLiquidated(user, symbol, collateralLost, msg.sender);
+
+                    emit PositionLiquidated(
+                        user,
+                        symbol,
+                        collateralLost,
+                        msg.sender
+                    );
                     liquidated++;
                 }
             }
         }
-        
+
         return liquidated;
     }
 
@@ -353,27 +425,28 @@ contract Perps is PerpsEvents {
         int256 unrealizedPnL = calculator.calculatePnL(position, currentPrice);
         uint256 accruedFees = feeManager.calculateHoldingFee(position);
 
-        return PerpsStructs.PositionInfo({
-            sizeUSD: position.sizeUSD,
-            collateralUSDC: position.collateralUSDC,
-            entryPrice: position.entryPrice,
-            leverage: position.leverage,
-            isLong: position.isLong,
-            isOpen: position.isOpen,
-            currentPrice: currentPrice,
-            liquidationPrice: calculator.calculateLiquidationPrice(
-                position,
-                markets[symbol]
-            ),
-            unrealizedPnL: unrealizedPnL,
-            accruedFees: accruedFees,
-            netPnL: unrealizedPnL - int256(accruedFees),
-            canBeLiquidated: calculator.canLiquidate(
-                position,
-                markets[symbol],
-                currentPrice
-            )
-        });
+        return
+            PerpsStructs.PositionInfo({
+                sizeUSD: position.sizeUSD,
+                collateralUSDC: position.collateralUSDC,
+                entryPrice: position.entryPrice,
+                leverage: position.leverage,
+                isLong: position.isLong,
+                isOpen: position.isOpen,
+                currentPrice: currentPrice,
+                liquidationPrice: calculator.calculateLiquidationPrice(
+                    position,
+                    markets[symbol]
+                ),
+                unrealizedPnL: unrealizedPnL,
+                accruedFees: accruedFees,
+                netPnL: unrealizedPnL - int256(accruedFees),
+                canBeLiquidated: calculator.canLiquidate(
+                    position,
+                    markets[symbol],
+                    currentPrice
+                )
+            });
     }
 
     /**
@@ -411,7 +484,11 @@ contract Perps is PerpsEvents {
     /**
      * @dev Calculate user's total position exposure across all markets
      */
-    function _getUserTotalExposure(address user) internal view returns (uint256) {
+    function _getUserTotalExposure(address user)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 totalExposure = 0;
         for (uint256 i = 0; i < marketSymbols.length; i++) {
             if (positions[user][marketSymbols[i]].isOpen) {
@@ -441,10 +518,10 @@ contract Perps is PerpsEvents {
     /**
      * @dev Get market information
      */
-    function getMarket(string memory symbol) 
-        external 
-        view 
-        returns (PerpsStructs.Market memory) 
+    function getMarket(string memory symbol)
+        external
+        view
+        returns (PerpsStructs.Market memory)
     {
         return markets[symbol];
     }
@@ -452,10 +529,14 @@ contract Perps is PerpsEvents {
     /**
      * @dev Get user's remaining capacity for new positions
      */
-    function getUserRemainingCapacity(address user) external view returns (uint256) {
+    function getUserRemainingCapacity(address user)
+        external
+        view
+        returns (uint256)
+    {
         uint256 currentExposure = _getUserTotalExposure(user);
         uint256 maxExposure = 300_000_000; // $300 max exposure
-        
+
         if (currentExposure >= maxExposure) {
             return 0;
         }
@@ -465,21 +546,21 @@ contract Perps is PerpsEvents {
     /**
      * @dev Get user limits and current usage
      */
-    function getUserLimits(address user) 
-        external 
-        view 
+    function getUserLimits(address user)
+        external
+        view
         returns (
             uint256 maxBalance,
-            uint256 currentBalance, 
+            uint256 currentBalance,
             uint256 maxExposure,
             uint256 currentExposure,
             uint256 remainingCapacity
-        ) 
+        )
     {
         return (
             100_000_000, // $100 max balance
             balances[user],
-            300_000_000, // $300 max exposure  
+            300_000_000, // $300 max exposure
             _getUserTotalExposure(user),
             this.getUserRemainingCapacity(user)
         );
