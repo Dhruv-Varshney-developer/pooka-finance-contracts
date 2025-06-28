@@ -85,11 +85,14 @@ async function main(): Promise<void> {
 
   // Set PoolManager in Perps contract
   await perps.write.setPoolManager([poolManager.address]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   // Authorize VRFAutomation to call VRFRandomizer
   await vrfRandomizer.write.addAuthorizedCaller([vrfAutomation.address]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   await vrfRandomizer.write.addAuthorizedCaller([perps.address]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
 
   console.log("✅ Contract connections established");
 
@@ -102,6 +105,7 @@ async function main(): Promise<void> {
 
   const fundingAmount: bigint = BigInt("10000000"); // 10 USDC (6 decimals)
   await usdcContract.write.transfer([poolManager.address, fundingAmount]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
   console.log(`✅ Funded PoolManager with 10 USDC`);
 
   const poolManagerBalance = await usdcContract.read.balanceOf([
@@ -126,12 +130,18 @@ async function main(): Promise<void> {
     timeAutomation.address,
     linkFundingAmount,
   ]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
 
   console.log("  Funding LogLiquidationAutomation...");
   await linkContract.write.transfer([logAutomation.address, linkFundingAmount]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
 
   console.log("  Funding VRFAutomation...");
   await linkContract.write.transfer([vrfAutomation.address, linkFundingAmount]);
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
 
   console.log(`✅ Funded each automation contract with 5 LINK`);
 
