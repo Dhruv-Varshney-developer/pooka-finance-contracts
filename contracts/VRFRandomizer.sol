@@ -124,10 +124,8 @@ contract VRFRandomizer is VRFConsumerBaseV2 {
         return array;
     }
 
-    // === MINIMAL ADMIN FUNCTIONS ===
-
     /**
-     * @dev Add authorized caller (like automation contract)
+     * @dev Add authorized caller
      */
     function addAuthorizedCaller(address caller) external onlyOwner {
         authorizedCallers[caller] = true;
