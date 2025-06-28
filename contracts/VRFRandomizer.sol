@@ -93,7 +93,9 @@ contract VRFRandomizer is VRFConsumerBaseV2Plus {
     function shuffleAddresses(
         address[] memory array
     ) external view returns (address[] memory) {
+         if (array.length <= 1) return array; // Handle empty/single arrays
         uint256 randomness = currentRandomness;
+
 
         for (uint256 i = array.length - 1; i > 0; i--) {
             uint256 j = randomness % (i + 1);
