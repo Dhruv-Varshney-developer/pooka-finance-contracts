@@ -7,6 +7,7 @@ import "./PerpsStructs.sol";
 import "./PerpsEvents.sol";
 import "./PerpsFeeManager.sol";
 import "./PerpsCalculations.sol";
+import "./VRFRandomizer.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
@@ -14,6 +15,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @dev Main perpetual trading contract - USDC-based collateral
  */
 contract Perps is PerpsEvents {
+    // External VRF randomizer
+    VRFRandomizer public vrfRandomizer;
+
     // State variables
     PriceOracle public priceOracle;
     PerpsFeeManager public feeManager;
@@ -50,16 +54,85 @@ contract Perps is PerpsEvents {
         address _priceOracle,
         address _feeManager,
         address _calculator,
-        address _usdcToken
+        address _usdcToken,
+        address _vrfRandomizer
     ) {
         owner = msg.sender;
         priceOracle = PriceOracle(_priceOracle);
         feeManager = PerpsFeeManager(_feeManager);
         calculator = PerpsCalculations(_calculator);
         usdcToken = IERC20(_usdcToken);
+        vrfRandomizer = VRFRandomizer(_vrfRandomizer);
+
         // Initialize default markets with 3x max leverage
         _addMarket("BTC/USD", 3, 500);
         _addMarket("ETH/USD", 3, 667);
+    }
+
+    /**
+     * @dev Liquidate all liquidatable positions with randomized order
+     */
+    function liquidatePositions() external returns (uint256 liquidated) {
+        liquidated = 0;
+
+        // Get shuffled user array from VRF randomizer
+        address[] memory shuffledUsers = vrfRandomizer.shuffleAddresses(
+            allUsers
+        );
+
+        // Iterate through users in randomized order
+        for (uint256 i = 0; i < shuffledUsers.length; i++) {
+            address user = shuffledUsers[i];
+
+            // Check all markets for this user
+            for (uint256 j = 0; j < marketSymbols.length; j++) {
+                string memory symbol = marketSymbols[j];
+                PerpsStructs.Position storage position = positions[user][
+                    symbol
+                ];
+
+                if (!position.isOpen) continue;
+
+                (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
+
+                if (
+                    calculator.canLiquidate(
+                        position,
+                        markets[symbol],
+                        currentPrice
+                    )
+                ) {
+                    // Update market totals
+                    if (position.isLong) {
+                        markets[symbol].totalLongSizeUSD -= position.sizeUSD;
+                    } else {
+                        markets[symbol].totalShortSizeUSD -= position.sizeUSD;
+                    }
+
+                    // Close position
+                    uint256 collateralLost = position.collateralUSDC;
+                    position.isOpen = false;
+                    position.lastFeeTime = block.timestamp;
+
+                    emit PositionLiquidated(
+                        user,
+                        symbol,
+                        collateralLost,
+                        msg.sender
+                    );
+                    liquidated++;
+                }
+            }
+        }
+
+        return liquidated;
+    }
+
+    /**
+     * @dev Update VRF randomizer contract
+     */
+    function updateVRFRandomizer(address _vrfRandomizer) external onlyOwner {
+        vrfRandomizer = VRFRandomizer(_vrfRandomizer);
     }
 
     /**
@@ -358,67 +431,12 @@ contract Perps is PerpsEvents {
     }
 
     /**
-     * @dev Liquidate all liquidatable positions (for automation)
-     */
-    function liquidatePositions() external returns (uint256 liquidated) {
-        liquidated = 0;
-
-        // Iterate through all users who ever had positions
-        for (uint256 i = 0; i < allUsers.length; i++) {
-            address user = allUsers[i];
-
-            // Check all markets for this user
-            for (uint256 j = 0; j < marketSymbols.length; j++) {
-                string memory symbol = marketSymbols[j];
-                PerpsStructs.Position storage position = positions[user][
-                    symbol
-                ];
-
-                if (!position.isOpen) continue;
-
-                (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
-
-                if (
-                    calculator.canLiquidate(
-                        position,
-                        markets[symbol],
-                        currentPrice
-                    )
-                ) {
-                    // Update market totals
-                    if (position.isLong) {
-                        markets[symbol].totalLongSizeUSD -= position.sizeUSD;
-                    } else {
-                        markets[symbol].totalShortSizeUSD -= position.sizeUSD;
-                    }
-
-                    // Close position
-                    uint256 collateralLost = position.collateralUSDC;
-                    position.isOpen = false;
-                    position.lastFeeTime = block.timestamp;
-
-                    emit PositionLiquidated(
-                        user,
-                        symbol,
-                        collateralLost,
-                        msg.sender
-                    );
-                    liquidated++;
-                }
-            }
-        }
-
-        return liquidated;
-    }
-
-    /**
      * @dev Get comprehensive position information
      */
-    function getPosition(address user, string memory symbol)
-        external
-        view
-        returns (PerpsStructs.PositionInfo memory)
-    {
+    function getPosition(
+        address user,
+        string memory symbol
+    ) external view returns (PerpsStructs.PositionInfo memory) {
         PerpsStructs.Position memory position = positions[user][symbol];
         (uint256 currentPrice, ) = priceOracle.getPrice(symbol);
 
