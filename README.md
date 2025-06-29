@@ -8,16 +8,62 @@ Pooka Finance enables leveraged cryptocurrency trading across multiple blockchai
 
 ## Architecture
 
+![image](https://github.com/user-attachments/assets/fe2577de-3a31-46c7-8375-29c15fa8a385)
+
+
+### Cross-Chain Trading Flow
+
+Pooka Finance solves the fundamental problem of cross-chain DeFi by enabling seamless trading across networks:
+
+#### **Direct Deposits on Avalanche**
+- Users depositing **USDC** can directly interact with the **Perps Contract** on Avalanche Fuji
+- Users depositing **AVAX** or **LINK** tokens are routed through the **PoolManager** which converts assets to USDC and forwards to the Perps Contract
+
+#### **Cross-Chain Deposits (Sepolia → Avalanche)**
+- Users deposit **USDC** on Sepolia through the **CrossChainManager** contract
+- **Chainlink CCIP** bridges funds to Avalanche PoolManager (takes ~25 minutes)
+- **Pre-funding architecture**: PoolManager immediately credits users for instant trading while CCIP settles in background
+- Final settlement via `depositUSDCForUser()` once CCIP message arrives
+
+#### **Automated Risk Management**
+- **Perps.sol** and **PriceOracle.sol** handle all trading logic on Avalanche Fuji
+- All positions managed in **USDC** with real-time Chainlink price feeds
+- **Chainlink Automation** monitors positions 24/7 and triggers liquidations
+- **VRF randomization** ensures fair liquidation ordering
+
+### Protocol Components
+
 The protocol consists of smart contracts deployed across two chains:
 
 ### Avalanche Fuji (Main Trading Chain)
 - **Perps.sol** - Core perpetual trading engine
-- **Pool.sol** - Multi-token deposit handler and liquidity management
+- **PoolManager.sol** - Multi-token deposit handler and liquidity management
 - **PriceOracle.sol** - Chainlink price feed integration
 - **Automation contracts** - Automated liquidation systems
+- **VRFRandomizer.sol** - Fair liquidation ordering
 
 ### Ethereum Sepolia (Cross-Chain Bridge)
 - **CrossChainManager.sol** - CCIP-based USDC bridging to Avalanche
+
+## Deployed Contracts
+
+### Avalanche Fuji Testnet
+```
+PriceOracle:              0x9f2b180d135c46012c97f5beb02307cc7dc32cbd
+PerpsFeeManager:          0x117d284f89fe797a65145e67cc31e21dbbf60cdc
+PerpsCalculations:        0xb6fc2a81fc5803a1e5a855e69cdad79eae9a91bc
+VRFRandomizer:            0xbb0599742317d4a77841d3f0d6c9bf076d83bd5a
+VRFAutomation:            0x0687d4d5ea6122d975ef845c0e55a514d65da64a
+Perps:                    0x9d2b2005ec13fb8a7191b0df208dfbd541827c19
+PoolManager:              0xb5abc3e5d2d3b243974f0a323c4f6514f70598cf
+TimeLiquidationAutomation: 0x636f1b91cfd7b91a4f7fb01e52a5df5d818a6060
+LogLiquidationAutomation:  0xaa3ffc9a984d4fcac150a9d5f2b3ce004234b471
+```
+
+### Ethereum Sepolia Testnet
+```
+CrossChainManager:        0x0bb4543671f72a41efcaa6f089f421446264cc49
+```
 
 ## Smart Contracts
 
@@ -36,6 +82,7 @@ function depositUSDC(uint256 usdcAmount)
 function openPosition(string symbol, uint256 collateralUSDC, uint256 leverage, bool isLong)
 function closePosition(string symbol)
 function liquidatePositions() returns (uint256 liquidated)
+function depositUSDCForUser(address user, uint256 usdcAmount) // For cross-chain deposits
 ```
 
 #### `PerpsCalculations.sol`
@@ -60,12 +107,23 @@ CCIP bridge for cross-chain USDC deposits:
 - Includes safety limits (max 100 USDC per transaction)
 - Handles CCIP message construction and fees
 
-#### `Pool.sol` (Avalanche)
+**Key Functions:**
+```solidity
+function depositAndSend(uint256 usdcAmount)
+```
+
+#### `PoolManager.sol` (Avalanche)
 Multi-token deposit handler:
 - Accepts AVAX, LINK, and USDC deposits
 - Converts tokens to USDC using Chainlink price feeds
 - Forwards converted USDC to Perps contract
 - Handles both direct deposits and cross-chain CCIP messages
+
+**Key Functions:**
+```solidity
+function depositUSDCForUser(address user, uint256 usdcAmount) // Pre-funding for instant UX
+function depositDirect(address user, uint256 usdcAmount) // Final CCIP settlement
+```
 
 ### Automation & Oracles
 
@@ -74,6 +132,11 @@ Chainlink VRF integration for fair liquidation ordering:
 - Generates verifiable randomness
 - Shuffles user arrays to prevent liquidation front-running
 - Auto-refreshes randomness every 6 hours
+
+#### `VRFAutomation.sol`
+Automation contract for VRF randomness refresh:
+- Automatically calls `requestRandomWords()` every 6 hours
+- Ensures liquidation fairness is maintained
 
 #### `TimeLiquidationAutomation.sol` & `LogLiquidationAutomation.sol`
 Chainlink Automation contracts:
@@ -160,6 +223,9 @@ npm run test:integration    # End-to-end workflows
 - **LINK Token**: `0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846`
 - **CCIP Router**: `0xF694E193200268f9a4868e4Aa017A0118C9a8177`
 - **Chain Selector**: `14767482510784806043`
+- **VRF Coordinator**: `0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE`
+- **VRF Key Hash**: `0xc799bd1e3bd4d1a41cd4968997a4e03dfd2a3c7c04b695881138580163f42887`
+- **VRF Subscription ID**: `78089242584694303630769952839292814618695167473477384782355522507914412967813`
 
 ### Ethereum Sepolia Testnet
 - **USDC Token**: `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238`
@@ -167,7 +233,7 @@ npm run test:integration    # End-to-end workflows
 - **CCIP Router**: `0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59`
 - **Chain Selector**: `16015286601757825753`
 
-## Usage Example
+## Usage Examples
 
 ### Opening a Position
 
@@ -183,38 +249,52 @@ perps.openPosition("BTC/USD", 25_000_000, 2, true);
 perps.closePosition("BTC/USD");
 ```
 
-### Cross-Chain Deposit
+### Cross-Chain Deposit Flow
 
 ```solidity
 // On Sepolia: Deposit USDC to bridge to Avalanche
 crossChainManager.depositAndSend(10_000_000); // $10 USDC
-// Automatically appears in user's Avalanche balance
+
+// On Avalanche: PoolManager immediately credits user for instant trading
+// CCIP settlement happens in background via depositDirect()
+```
+
+### Multi-Token Deposits on Avalanche
+
+```solidity
+// Deposit AVAX (automatically converted to USDC)
+poolManager.deposit{value: 1 ether}(address(0), 1 ether);
+
+// Deposit LINK tokens (automatically converted to USDC)  
+poolManager.deposit(LINK_ADDRESS, 10 * 1e18);
 ```
 
 ## Key Features
 
 - **Leverage Trading**: Up to 3x leverage on BTC/USD and ETH/USD
-- **Cross-Chain Deposits**: Seamless USDC bridging from Ethereum
+- **Cross-Chain Deposits**: Seamless USDC bridging from Ethereum with instant UX
 - **Automated Liquidations**: Chainlink Automation with VRF fairness
 - **Real-Time Pricing**: Chainlink price feeds with 8-decimal precision
 - **Risk Management**: Position limits and maintenance margins
 - **Multi-Token Support**: Accept AVAX, LINK, USDC deposits
+- **Fair Liquidations**: VRF randomization prevents MEV exploitation
 
 ## Development
 
 ### Code Structure
 ```
 contracts/
-├── Perps.sol                    # Main trading engine
-├── CrossChainManager.sol        # CCIP bridge (Sepolia)
-├── Pool.sol                     # Multi-token deposits (Avalanche)
-├── PriceOracle.sol             # Chainlink price feeds
-├── PerpsCalculations.sol       # Risk calculations
-├── PerpsFeeManager.sol         # Fee management
-├── VRFRandomizer.sol           # Chainlink VRF integration
+├── Perps.sol                     # Main trading engine
+├── CrossChainManager.sol         # CCIP bridge (Sepolia)
+├── PoolManager.sol               # Multi-token deposits (Avalanche)
+├── PriceOracle.sol              # Chainlink price feeds
+├── PerpsCalculations.sol        # Risk calculations
+├── PerpsFeeManager.sol          # Fee management
+├── VRFRandomizer.sol            # Chainlink VRF integration
+├── VRFAutomation.sol            # VRF randomness refresh
 ├── TimeLiquidationAutomation.sol # Time-based automation
 ├── LogLiquidationAutomation.sol  # Event-based automation
-└── PerpsStructs.sol            # Shared data structures
+└── PerpsStructs.sol             # Shared data structures
 ```
 
 ### Contributing
@@ -230,6 +310,17 @@ contracts/
 - Maintain comprehensive test coverage
 - Document all public functions with NatSpec
 - Use descriptive variable names
+
+## Links
+
+### Project Resources
+- **Live Application**: [https://pooka-finance-app.vercel.app/](https://pooka-finance-app.vercel.app/)
+- **Documentation**: [https://pookafinance.gitbook.io/pookafinance-docs/](https://pookafinance.gitbook.io/pookafinance-docs/)
+
+### GitHub Repositories
+- **Frontend Application**: [https://github.com/Dhruv-Varshney-developer/pooka-finance-app](https://github.com/Dhruv-Varshney-developer/pooka-finance-app)
+- **Smart Contracts**: [https://github.com/Dhruv-Varshney-developer/pooka-finance-contracts](https://github.com/Dhruv-Varshney-developer/pooka-finance-contracts)
+- **AI Agent Backend**: [https://github.com/Devanshgoel-123/AgenticBackendPooka](https://github.com/Devanshgoel-123/AgenticBackendPooka)
 
 ## License
 
