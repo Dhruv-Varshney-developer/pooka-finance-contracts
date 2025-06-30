@@ -8,7 +8,8 @@ Pooka Finance enables leveraged cryptocurrency trading across multiple blockchai
 
 ## Architecture
 
-![image](https://github.com/user-attachments/assets/d69640f2-460e-42d2-84f0-61e3fdd6dffb)
+![image](https://github.com/user-attachments/assets/779847ac-11ba-4469-913b-3fc5c871f4e4)
+
 
 
 
