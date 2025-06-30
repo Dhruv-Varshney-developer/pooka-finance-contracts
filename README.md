@@ -25,7 +25,6 @@ Pooka Finance solves the fundamental problem of cross-chain DeFi by enabling sea
 - Users deposit **USDC** on Sepolia through the **CrossChainManager** contract
 - **Chainlink CCIP** bridges funds to Avalanche PoolManager (takes ~25 minutes)
 - **Pre-funding architecture**: PoolManager immediately credits users for instant trading while CCIP settles in background
-- Final settlement via `depositUSDCForUser()` once CCIP message arrives
 
 #### **Automated Risk Management**
 - **Perps.sol** and **PriceOracle.sol** handle all trading logic on Avalanche Fuji
@@ -299,19 +298,6 @@ contracts/
 └── PerpsStructs.sol             # Shared data structures
 ```
 
-### Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Write tests for new functionality
-4. Ensure all tests pass: `npm test`
-5. Submit a pull request
-
-### Code Standards
-- Follow Solidity style guide
-- Maintain comprehensive test coverage
-- Document all public functions with NatSpec
-- Use descriptive variable names
 
 ## Project Links
 
