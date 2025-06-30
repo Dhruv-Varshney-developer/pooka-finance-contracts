@@ -312,16 +312,14 @@ contracts/
 - Document all public functions with NatSpec
 - Use descriptive variable names
 
-## Links
+## Project Links
 
-### Project Resources
-- **Live Application**: [https://pooka-finance-app.vercel.app/](https://pooka-finance-app.vercel.app/)
-- **Documentation**: [https://pookafinance.gitbook.io/pookafinance-docs/](https://pookafinance.gitbook.io/pookafinance-docs/)
-
-### GitHub Repositories
-- **Frontend Application**: [https://github.com/Dhruv-Varshney-developer/pooka-finance-app](https://github.com/Dhruv-Varshney-developer/pooka-finance-app)
-- **Smart Contracts**: [https://github.com/Dhruv-Varshney-developer/pooka-finance-contracts](https://github.com/Dhruv-Varshney-developer/pooka-finance-contracts)
-- **AI Agent Backend**: [https://github.com/Devanshgoel-123/AgenticBackendPooka](https://github.com/Devanshgoel-123/AgenticBackendPooka)
+1. [Demo Video](https://youtu.be/byVYwKSZH78)
+2. [Pooka Finance Contracts](https://github.com/Dhruv-Varshney-developer/pooka-finance-contracts)
+3. [Pooka Finance App](https://github.com/Dhruv-Varshney-developer/pooka-finance-app)
+4. [Live Application](https://pooka-finance-app.vercel.app/)
+5. [User Documentation](https://pookafinance.gitbook.io/pookafinance-docs)
+6. [AI Agent Backend](https://github.com/Devanshgoel-123/AgenticBackendPooka)
 
 ## License
 
